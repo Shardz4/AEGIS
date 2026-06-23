@@ -41,13 +41,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             count += 1;
             signal_id = signal_id.wrapping_add(1);
 
-            next_tick += tick_duration;
-            let now_inst = Instant::now();
-            if next_tick > now_inst {
-                thread::sleep(next_tick - now_inst);
-            } else if now_inst - next_tick > Duration::from_millis(100) {
-                // Reset to now if we fall behind
-                next_tick = now_inst;
+            if !std::env::var("AEGIS_UNTHROTTLED").is_ok() {
+                next_tick += tick_duration;
+                let now_inst = Instant::now();
+                if next_tick > now_inst {
+                    thread::sleep(next_tick - now_inst);
+                } else if now_inst - next_tick > Duration::from_millis(100) {
+                    // Reset to now if we fall behind
+                    next_tick = now_inst;
+                }
             }
         }
 
