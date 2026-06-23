@@ -1,0 +1,10 @@
+implementation_plan.md
+aegis_ring.bin
+target/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.chroma/
