@@ -7,6 +7,7 @@ from aegis.risk.bayesian_net import RiskEngine, RiskAssessment
 from aegis.rag.corpus import get_mock_corpus
 from aegis.rag.retriever import RegulatoryRetriever
 from aegis.narrator.narrator import AlertNarrator
+from aegis.fatigue.fatigue_monitor import FatigueMonitor
 
 def map_gas_level(val: float) -> str:
     if val < 20.0: return "low"
@@ -57,6 +58,9 @@ class BatchProcessor:
         self.narrator = AlertNarrator(self.retriever)
         self.alert_history = []
         self.last_alert_time: dict[int, float] = {}  # zone_id -> timestamp of last LLM call
+
+        # Fatigue monitor initialization
+        self.fatigue_monitor = FatigueMonitor()
 
     def process_events(self):
         """Reads a batch of events from the ring buffer and updates local state."""
@@ -172,8 +176,12 @@ class BatchProcessor:
                 plume_ctx = self.equipment_graph.get_affected_by_plume(affected_zones)
                 evidence["_affected_workers"] += plume_ctx["total_workers_at_risk"]
 
-            # Fatigue Score (Default to normal for now)
-            evidence["FatigueScore"] = "normal"
+            # Fatigue Score
+            zone_fatigue = self.fatigue_monitor.get_zone_fatigue(zone_id)
+            evidence["FatigueScore"] = zone_fatigue.fatigue_level
+            evidence["_max_fatigue"] = zone_fatigue.max_fatigue_score
+            evidence["_avg_fatigue"] = zone_fatigue.avg_fatigue_score
+            evidence["_most_fatigued_operator"] = zone_fatigue.most_fatigued_operator
 
             # Compute risk
             assessment = self.risk_engine.compute_risk(zone_id, now, evidence)
@@ -275,24 +283,26 @@ class BatchProcessor:
                 last_eval = now
                 assessments = self.evaluate_risk()
 
-                # Print dashboard table to stdout
+                 # Print dashboard table to stdout
                 print("\033[H\033[J", end="") # Clean console screen
-                print("================== AEGIS REASONING BRAIN ==================")
+                print("================================ AEGIS REASONING BRAIN ================================")
                 print(f"Active Permits: {len(self.permit_store.active_permits)}")
-                print("-----------------------------------------------------------")
-                print(f"{'ZONE':<8} | {'INCIDENT PROBABILITY':<25} | {'RISK SCORE':<10} | {'URGENCY':<12}")
-                print("-----------------------------------------------------------")
+                print("---------------------------------------------------------------------------------------")
+                print(f"{'ZONE':<8} | {'INCIDENT PROBABILITY':<25} | {'RISK SCORE':<10} | {'URGENCY':<16} | {'FATIGUE':<10}")
+                print("---------------------------------------------------------------------------------------")
                 
                 for ra in assessments:
                     zone_name = f"ZONE {ra.zone_id}"
                     # Format probability distribution
                     prob_str = f"{ra.max_probability_state} ({ra.max_probability_value*100:.1f}%)"
-                    print(f"{zone_name:<8} | {prob_str:<25} | {ra.risk_score:<10.1f} | {ra.recommendation_urgency:<12}")
-                print("===========================================================")
+                    fatigue_level = ra.raw_evidence.get("FatigueScore", "normal")
+                    print(f"{zone_name:<8} | {prob_str:<25} | {ra.risk_score:<10.1f} | {ra.recommendation_urgency:<16} | {fatigue_level:<10}")
+                print("=======================================================================================")
 
-            # 3. Every 10 seconds, tick permit store (expire old permits)
+            # 3. Every 10 seconds, tick permit store (expire old permits) and fatigue monitor
             if now - last_permit_tick >= 10.0:
                 last_permit_tick = now
                 self.permit_store.tick()
+                self.fatigue_monitor.tick()
 
             time.sleep(0.01)

@@ -196,7 +196,7 @@ def build_bayesian_network() -> DiscreteBayesianNetwork:
         parent_names=["EquipmentRisk", "PermitRisk", "FatigueScore"],
         parent_cards=[4, 3, 3],
         states_card=5,
-        weights=[0.50, 0.35, 0.15],
+        weights=[0.45, 0.25, 0.30],
         decay=0.4,
         safety_parents=["EquipmentRisk"]
     )
