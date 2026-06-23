@@ -5,4 +5,5 @@ members = [
     "bin",
     "scada_sim",
     "tti_engine",
+    "plume_sim",
 ]

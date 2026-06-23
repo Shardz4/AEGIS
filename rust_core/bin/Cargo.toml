@@ -7,4 +7,5 @@ edition = "2021"
 ring_buffer = { path = "../ring_buffer" }
 scada_sim = { path = "../scada_sim" }
 tti_engine = { path = "../tti_engine" }
+plume_sim = { path = "../plume_sim" }
 rmp-serde = "1.3"
