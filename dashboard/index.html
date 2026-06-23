@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AEGIS — Adaptive Engine for Graded Industrial Safety</title>
+    
+    <!-- Typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    
+    <!-- CSS Layout & Components -->
+    <link rel="stylesheet" href="css/index.css">
+    <link rel="stylesheet" href="css/layout.css">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/animations.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- HEADER -->
+        <header class="app-header">
+            <div class="header-title-container">
+                <div class="logo-pulse"></div>
+                <h1>AEGIS</h1>
+                <span class="divider">|</span>
+                <span class="subtitle">Adaptive Engine for Graded Safety</span>
+            </div>
+            
+            <div class="header-controls">
+                <button id="demo-btn" class="btn btn-primary btn-demo">
+                    <span class="icon">🚀</span> Run Demo Scenario
+                </button>
+                <div class="lead-time-display hidden" id="lead-time-container">
+                    Lead Time: <span id="lead-time-val" class="text-primary font-mono">0m 00s</span>
+                </div>
+                <div class="status-indicator">
+                    <span id="conn-dot" class="dot dot-danger"></span>
+                    <span id="conn-text">Disconnected</span>
+                </div>
+                <div class="clock font-mono" id="current-clock">00:00:00</div>
+            </div>
+        </header>
+
+        <!-- MAIN CONTENT (GRID) -->
+        <main class="app-main">
+            <!-- LEFT PANEL: Zone Cards -->
+            <section class="panel left-panel">
+                <div class="panel-header">
+                    <h2>Plant Zones</h2>
+                    <span class="badge" id="zone-count-badge">8 Active</span>
+                </div>
+                <div class="panel-content scrollable" id="zone-cards-container">
+                    <!-- Cards will be populated programmatically -->
+                    <div class="loading-placeholder">Initializing zone feeds...</div>
+                </div>
+            </section>
+
+            <!-- CENTER PANEL: Plant Map Canvas -->
+            <section class="panel center-panel">
+                <div class="panel-header map-header">
+                    <h2>Plant Map — Live Overlay</h2>
+                    <div class="wind-info font-mono" id="wind-display">
+                        Wind: <span id="wind-dir" class="text-accent">N/A</span> @ <span id="wind-speed" class="text-accent">0 m/s</span>
+                    </div>
+                </div>
+                <div class="map-container" id="canvas-container">
+                    <canvas id="map-canvas"></canvas>
+                    
+                    <!-- Glassmorphism overlay panel for current hazard details -->
+                    <div class="map-overlay-card glass hidden" id="hazard-overlay">
+                        <div class="overlay-title">⚠️ ACTIVE CONSEQUENCE PLUME</div>
+                        <div class="overlay-row">
+                            <span class="label">Source:</span>
+                            <span class="val font-mono" id="plume-source">Zone 2</span>
+                        </div>
+                        <div class="overlay-row">
+                            <span class="label">Hazard Radius:</span>
+                            <span class="val font-mono text-danger" id="plume-radius">0.0m</span>
+                        </div>
+                        <div class="overlay-row">
+                            <span class="label">Gas Species:</span>
+                            <span class="val font-mono" id="plume-gas">Methane</span>
+                        </div>
+                        <div class="overlay-row">
+                            <span class="label">Est. Release Rate:</span>
+                            <span class="val font-mono" id="plume-rate">0.0 kg/s</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- RIGHT PANEL: Alert Feed -->
+            <section class="panel right-panel">
+                <div class="panel-header">
+                    <h2>Operator Recommendations</h2>
+                    <span class="badge badge-warning" id="alert-count-badge">0 Alerts</span>
+                </div>
+                <div class="panel-content scrollable" id="alert-feed-container">
+                    <div class="no-alerts-placeholder">
+                        <div class="placeholder-icon">✓</div>
+                        <p class="placeholder-title">Systems Operating Normally</p>
+                        <p class="placeholder-desc">No high-risk conditions detected. All zone scores nominal.</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- BOTTOM PANEL: TTI Countdown Sparklines -->
+        <footer class="app-footer">
+            <div class="footer-title">
+                <h3>TTI Countdown Sparklines</h3>
+                <span class="caption">Top 5 Trending Hazards (Last 60s)</span>
+            </div>
+            <div class="footer-content" id="sparklines-container">
+                <div class="loading-placeholder">No active sensor trends. Normal operation.</div>
+            </div>
+        </footer>
+    </div>
+
+    <!-- ES Module Main Entry -->
+    <script type="module" src="js/app.js"></script>
+</body>
+</html>

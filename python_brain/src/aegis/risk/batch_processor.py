@@ -62,6 +62,9 @@ class BatchProcessor:
         # Fatigue monitor initialization
         self.fatigue_monitor = FatigueMonitor()
 
+        # Telemetry updates buffer for dashboard HTTP POST bridge
+        self.pending_updates = []
+
     def process_events(self):
         """Reads a batch of events from the ring buffer and updates local state."""
         batch = self.ring_reader.read_batch()
@@ -89,6 +92,8 @@ class BatchProcessor:
                     self.latest_signals[zone_id][s_type] = val
 
                     # Unpack TTI metadata
+                    tti_secs = None
+                    urgency_str = "normal"
                     if meta:
                         try:
                             tti_res = msgpack.unpackb(meta, raw=False)
@@ -103,12 +108,31 @@ class BatchProcessor:
                             self.latest_tti[zone_id][s_type] = (tti_secs, slope, urgency_str)
                         except Exception as e:
                             print(f"Error decoding TTI metadata for sensor {signal_id}: {e}")
+                    
+                    # Queue sensor update for dashboard
+                    self.pending_updates.append({
+                        "type": "sensor_update",
+                        "signal_id": signal_id,
+                        "zone_id": zone_id,
+                        "value": val,
+                        "tti_seconds": tti_secs,
+                        "urgency": urgency_str
+                    })
 
             elif src == 4:  # PLUME consequence event
                 if meta:
                     try:
                         plume_res = msgpack.unpackb(meta, raw=False)
                         self.latest_plumes[zone_id] = plume_res
+                        
+                        # Queue plume update for dashboard
+                        self.pending_updates.append({
+                            "type": "plume_update",
+                            "zone_id": zone_id,
+                            "hazard_radius_m": plume_res.get("hazard_radius_m", 0.0),
+                            "gas_name": plume_res.get("gas_name", "Hydrocarbon"),
+                            "leak_rate_kgs": plume_res.get("leak_rate_kgs", 0.0)
+                        })
                     except Exception as e:
                         print(f"Error decoding Plume metadata in zone {zone_id}: {e}")
 
@@ -187,6 +211,26 @@ class BatchProcessor:
             assessment = self.risk_engine.compute_risk(zone_id, now, evidence)
             assessments.append(assessment)
 
+            # Queue zone update for dashboard
+            self.pending_updates.append({
+                "type": "zone_update",
+                "zone_id": zone_id,
+                "risk_score": assessment.risk_score,
+                "risk_level": assessment.recommendation_urgency.lower(),
+                "active_permits": [p.permit_type for p in active_permits],
+                "worker_count": total_workers,
+                "fatigue_level": zone_fatigue.fatigue_level
+            })
+            
+            # Queue fatigue update for dashboard
+            self.pending_updates.append({
+                "type": "fatigue_update",
+                "zone_id": zone_id,
+                "max_fatigue": zone_fatigue.max_fatigue_score,
+                "avg_fatigue": zone_fatigue.avg_fatigue_score,
+                "worker_count": zone_fatigue.worker_count
+            })
+
             # If risk is critical or warning, add to alert queue
             if assessment.risk_score > 60.0:
                 self.alert_queue.append(assessment)
@@ -231,6 +275,27 @@ class BatchProcessor:
                         operator_alert = self.narrator.generate_alert(assessment, retrieved)
                         self.alert_history.append(operator_alert)
                         
+                        # Queue alert update for dashboard
+                        self.pending_updates.append({
+                            "type": "alert",
+                            "alert_id": operator_alert.alert_id,
+                            "timestamp": operator_alert.timestamp,
+                            "zone_id": operator_alert.zone_id,
+                            "risk_score": operator_alert.risk_score,
+                            "situation": operator_alert.situation,
+                            "actions": operator_alert.actions,
+                            "regulatory_citations": [
+                                {
+                                    "source": c.source,
+                                    "section": c.section,
+                                    "similarity_score": c.similarity_score,
+                                    "relevance": c.relevance
+                                } for c in operator_alert.regulatory_citations
+                            ],
+                            "urgency": operator_alert.urgency,
+                            "abstention_notes": operator_alert.abstention_notes
+                        })
+                        
                         # Print formatted alert to console
                         print("\n" + "!" * 80)
                         print(f"!!! AEGIS safety alert trigger: {operator_alert.alert_id} !!!".center(80))
@@ -259,7 +324,31 @@ class BatchProcessor:
                     except Exception as e:
                         print(f"Error executing LLM Alert Narrator for Zone {zone_id}: {e}")
 
+        # Flush all queued updates to dashboard
+        if self.pending_updates:
+            self.flush_dashboard_updates()
+
         return assessments
+
+    def flush_dashboard_updates(self):
+        """Send all queued dashboard updates in a single HTTP POST request to server.py."""
+        import urllib.request
+        import json
+        try:
+            data = json.dumps(self.pending_updates).encode('utf-8')
+            req = urllib.request.Request(
+                "http://localhost:8080/api/update",
+                data=data,
+                headers={'Content-Type': 'application/json'}
+            )
+            # 200ms timeout to avoid blocking SCADA loop
+            with urllib.request.urlopen(req, timeout=0.2) as f:
+                pass
+        except Exception:
+            # Quietly ignore if dashboard server is down
+            pass
+        finally:
+            self.pending_updates = []
 
     def run(self, duration_seconds: float = 60.0):
         start = time.time()
