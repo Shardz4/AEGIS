@@ -3,4 +3,6 @@ resolver = "2"
 members = [
     "ring_buffer",
     "bin",
+    "scada_sim",
+    "tti_engine",
 ]

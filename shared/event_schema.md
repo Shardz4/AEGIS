@@ -44,10 +44,13 @@ To maintain high throughput on the shared memory buffer, additional structured d
 When a SCADA sensor is enriched by the Rust TTI engine, the `meta` field contains a serialized `TtiResult`:
 ```json
 {
-  "tti_seconds": float or null, // Predicted time to threshold breach in seconds
+  "signal_id": int,             // The unique sensor ID
+  "tti_seconds": float or null, // Predicted time to threshold breach in seconds (null if flat/decreasing)
   "slope": float,               // Current slope of linear trend (units/sec)
-  "r_squared": float,           // R² coefficient of linear fit (confidence)
-  "urgency": int                // Urgency code: 0=NORMAL, 1=WATCH, 2=WARNING, 3=CRITICAL
+  "r_squared": float,           // R² coefficient of linear fit (confidence, 0.0 - 1.0)
+  "urgency": int,               // Urgency code: 0=NORMAL, 1=WATCH, 2=WARNING, 3=CRITICAL
+  "current_value": float,       // The latest reading of the sensor
+  "threshold": float            // The safety critical threshold being tracked
 }
 ```
 

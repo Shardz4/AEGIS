@@ -5,3 +5,6 @@ edition = "2021"
 
 [dependencies]
 ring_buffer = { path = "../ring_buffer" }
+scada_sim = { path = "../scada_sim" }
+tti_engine = { path = "../tti_engine" }
+rmp-serde = "1.3"
