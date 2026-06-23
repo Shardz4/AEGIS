@@ -13,6 +13,9 @@ dependencies = [
     "pgmpy>=0.1.25",
     "scipy>=1.7.0",
     "pandas>=1.3.0",
+    "sentence-transformers",
+    "openai",
+    "jinja2",
 ]
 
 [project.optional-dependencies]

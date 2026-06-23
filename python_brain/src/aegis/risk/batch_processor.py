@@ -4,6 +4,9 @@ from aegis.ipc.reader import RingBufferReader
 from aegis.graph.equipment_graph import EquipmentGraph
 from aegis.permits.permit_store import PermitStore
 from aegis.risk.bayesian_net import RiskEngine, RiskAssessment
+from aegis.rag.corpus import get_mock_corpus
+from aegis.rag.retriever import RegulatoryRetriever
+from aegis.narrator.narrator import AlertNarrator
 
 def map_gas_level(val: float) -> str:
     if val < 20.0: return "low"
@@ -23,6 +26,17 @@ def map_press_level(val: float) -> str:
     if val < 8.0: return "high"
     return "critical"
 
+FACTOR_QUERY_MAP = {
+    "GasLevel": "gas leak LEL monitoring",
+    "HotWorkActive": "hot work permit",
+    "ConfinedSpace": "confined space entry",
+    "Temperature": "temperature high critical",
+    "Pressure": "pressure high critical",
+    "TTI_Urgency": "time to incident emergency",
+    "WorkerCount": "workers exposed",
+    "FatigueScore": "operator fatigue"
+}
+
 class BatchProcessor:
     def __init__(self, ring_reader: RingBufferReader, risk_engine: RiskEngine, 
                  equipment_graph: EquipmentGraph, permit_store: PermitStore):
@@ -36,6 +50,13 @@ class BatchProcessor:
         self.latest_tti: dict[int, dict] = {}       # zone_id -> {sensor_type: (tti_seconds, slope, urgency_str)}
         self.latest_plumes: dict[int, dict] = {}    # zone_id -> plume_res_dict
         self.alert_queue: list[RiskAssessment] = []
+
+        # RAG and Narrator initialization
+        self.corpus = get_mock_corpus()
+        self.retriever = RegulatoryRetriever(self.corpus)
+        self.narrator = AlertNarrator(self.retriever)
+        self.alert_history = []
+        self.last_alert_time: dict[int, float] = {}  # zone_id -> timestamp of last LLM call
 
     def process_events(self):
         """Reads a batch of events from the ring buffer and updates local state."""
@@ -161,6 +182,74 @@ class BatchProcessor:
             # If risk is critical or warning, add to alert queue
             if assessment.risk_score > 60.0:
                 self.alert_queue.append(assessment)
+
+                # Rate-limiting check: max 1 call per zone per 30 seconds
+                last_alert = self.last_alert_time.get(zone_id, 0.0)
+                if now - last_alert >= 30.0:
+                    self.last_alert_time[zone_id] = now
+                    
+                    zones_info = {
+                        0: "Zone A - Tank Farm",
+                        1: "Zone B - Compressor Hall",
+                        2: "Zone C - Reactor Area",
+                        3: "Zone D - Pipe Rack",
+                        4: "Zone E - Control Room",
+                        5: "Zone F - Loading Bay",
+                        6: "Zone G - Utilities",
+                        7: "Zone H - Flare Stack",
+                    }
+                    zone_name = zones_info.get(zone_id, f"Zone {zone_id}")
+                    
+                    # Extract hazard factors from contributing factors and expand them to descriptive terms
+                    factors = []
+                    for factor_str in assessment.contributing_factors:
+                        parts = factor_str.split(":")
+                        if parts:
+                            name = parts[0].strip()
+                            factors.append(FACTOR_QUERY_MAP.get(name, name))
+                    
+                    # Include permit details in the query context
+                    active_permits = self.permit_store.get_active_for_zone(zone_id)
+                    permit_types = [FACTOR_QUERY_MAP.get(p.permit_type, p.permit_type) for p in active_permits]
+                    
+                    query_terms = list(set(factors + permit_types))
+                    query = f"{' '.join(query_terms)} in {zone_name}"
+                    
+                    # Retrieve relevant docs
+                    retrieved = self.retriever.retrieve(query)
+                    
+                    # Generate operator alert narrative
+                    try:
+                        operator_alert = self.narrator.generate_alert(assessment, retrieved)
+                        self.alert_history.append(operator_alert)
+                        
+                        # Print formatted alert to console
+                        print("\n" + "!" * 80)
+                        print(f"!!! AEGIS safety alert trigger: {operator_alert.alert_id} !!!".center(80))
+                        print(f"Location: {zone_name} (Zone {zone_id}) | Risk Score: {operator_alert.risk_score:.1f}% ({assessment.recommendation_urgency})".center(80))
+                        print(f"Urgency Statement: {operator_alert.urgency}".center(80))
+                        print("!" * 80)
+                        print(f"SITUATION SUMMARY:\n{operator_alert.situation}")
+                        print("-" * 80)
+                        print("PRIORITIZED ACTION ITEMS:")
+                        for i, action in enumerate(operator_alert.actions, 1):
+                            print(f"  {i}. {action}")
+                        print("-" * 80)
+                        print("REGULATORY BASES & COMPLIANCE CITATIONS:")
+                        if operator_alert.regulatory_citations:
+                            for c in operator_alert.regulatory_citations:
+                                print(f"  - [{c.source} - {c.section}] (Similarity: {c.similarity_score:.3f})")
+                                print(f"    Relevance: {c.relevance}")
+                        else:
+                            print("  No regulatory reference available for this condition.")
+                        if operator_alert.abstention_notes:
+                            print("-" * 80)
+                            print("RAG ABSTENTION / HALLUCINATION SAFETY FLAGS:")
+                            for note in operator_alert.abstention_notes:
+                                print(f"  - {note}")
+                        print("=" * 80 + "\n")
+                    except Exception as e:
+                        print(f"Error executing LLM Alert Narrator for Zone {zone_id}: {e}")
 
         return assessments
 
