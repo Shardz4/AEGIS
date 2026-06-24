@@ -1,182 +1,132 @@
 /**
- * Manages the top trending hazard sparklines and TTI progress bars
+ * Sparkline Trend Charts — Monochrome functional style
  */
 import { formatTTI } from './utils.js';
 
 export class SparklineManager {
     constructor() {
-        this.sensorHistory = {}; // signal_id -> array of values (last 60 seconds)
-        this.sensorMeta = {};    // signal_id -> { label, unit, threshold, zone_id, tti_seconds, urgency }
+        this.sensorHistory = {};
+        this.sensorMeta = {};
     }
 
-    /**
-     * Feed new sensor telemetry data to update history buffers
-     */
     updateSensor(signalId, value, metadata) {
         if (!this.sensorHistory[signalId]) {
             this.sensorHistory[signalId] = [];
         }
+        const hist = this.sensorHistory[signalId];
+        hist.push(value);
+        if (hist.length > 60) hist.shift();
 
-        const history = this.sensorHistory[signalId];
-        history.push(value);
-
-        // Limit history to last 60 readings (approx 60s)
-        if (history.length > 60) {
-            history.shift();
-        }
-
-        // Store latest metadata
         this.sensorMeta[signalId] = {
-            label: metadata.label || `Sensor ${signalId}`,
+            label: metadata.label || `SEN-${signalId}`,
             unit: metadata.unit || '',
-            threshold: metadata.threshold || 100.0,
+            threshold: metadata.threshold || 100,
             zone_id: metadata.zone_id,
             tti_seconds: metadata.tti_seconds,
             urgency: metadata.urgency || 'normal'
         };
     }
 
-    /**
-     * Renders sparklines and TTI count-downs to the bottom panel container
-     */
-    render(containerEl) {
-        // Collect sensors that have active warnings/TTI or represent the highest values
-        const activeSensors = Object.keys(this.sensorMeta).map(id => ({
+    render(container) {
+        const sensors = Object.keys(this.sensorMeta).map(id => ({
             id: parseInt(id),
             ...this.sensorMeta[id],
             history: this.sensorHistory[id]
         }));
 
-        // Sort: critical urgency first, then warning, then lowest TTI
-        const urgencyOrder = { 'critical': 3, 'warning': 2, 'watch': 1, 'normal': 0 };
-        activeSensors.sort((a, b) => {
-            // Compare urgency first
-            const urgDiff = urgencyOrder[b.urgency] - urgencyOrder[a.urgency];
-            if (urgDiff !== 0) return urgDiff;
-            
-            // Compare TTI second (if present)
-            const ttiA = a.tti_seconds !== null ? a.tti_seconds : 99999;
-            const ttiB = b.tti_seconds !== null ? b.tti_seconds : 99999;
-            return ttiA - ttiB;
+        const urgOrder = { 'critical': 3, 'warning': 2, 'watch': 1, 'normal': 0 };
+        sensors.sort((a, b) => {
+            const d = (urgOrder[b.urgency] || 0) - (urgOrder[a.urgency] || 0);
+            if (d !== 0) return d;
+            return (a.tti_seconds || 99999) - (b.tti_seconds || 99999);
         });
 
-        // Limit to top 5 sensors to display
-        const top5 = activeSensors.slice(0, 5);
-
-        if (top5.length === 0) {
-            containerEl.innerHTML = '<div class="loading-placeholder">No active sensor trends. Normal operation.</div>';
+        const top = sensors.slice(0, 5);
+        if (!top.length) {
+            container.innerHTML = '<div class="empty-state" style="height:auto;padding:0"><span class="empty-desc">No active trends</span></div>';
             return;
         }
 
-        // Generate HTML
-        containerEl.innerHTML = '';
-        
-        top5.forEach(sensor => {
-            const card = document.createElement('div');
-            card.className = `sparkline-card fade-in ${sensor.urgency === 'critical' ? 'danger' : sensor.urgency === 'warning' ? 'warning' : ''}`;
-            
-            const valueFormatted = `${sensor.history[sensor.history.length - 1].toFixed(1)}${sensor.unit}`;
-            const ttiFormatted = sensor.tti_seconds !== null && sensor.tti_seconds < 1800 
-                ? `TTI: ${formatTTI(sensor.tti_seconds)}` 
-                : 'TTI: Stable';
-                
-            card.innerHTML = `
+        container.innerHTML = '';
+        top.forEach(s => {
+            const el = document.createElement('div');
+            const stateClass = s.urgency === 'critical' ? 'state-critical' :
+                               s.urgency === 'warning' ? 'state-warning' : '';
+            el.className = `sparkline-widget ${stateClass} data-enter`;
+
+            const val = `${s.history[s.history.length - 1].toFixed(1)}${s.unit}`;
+            const tti = s.tti_seconds !== null && s.tti_seconds < 1800
+                ? `TTI ${formatTTI(s.tti_seconds)}`
+                : 'TTI ---';
+
+            el.innerHTML = `
                 <div class="sparkline-info">
-                    <span class="sparkline-label" title="${sensor.label} (Z${sensor.zone_id})">${sensor.label}</span>
-                    <span class="sparkline-value font-mono">${valueFormatted}</span>
-                    <span class="sparkline-tti font-mono">${ttiFormatted}</span>
+                    <span class="sparkline-label">${s.label}</span>
+                    <span class="sparkline-value">${val}</span>
+                    <span class="sparkline-tti">${tti}</span>
                 </div>
-                <div class="sparkline-chart-container">
-                    <canvas class="sparkline-canvas" id="spark-${sensor.id}"></canvas>
+                <div class="sparkline-chart-box">
+                    <canvas class="sparkline-canvas" id="spark-${s.id}"></canvas>
                 </div>
             `;
-            
-            containerEl.appendChild(card);
-            
-            // Draw sparkline canvas on next tick
+            container.appendChild(el);
+
             setTimeout(() => {
-                const canvas = document.getElementById(`spark-${sensor.id}`);
-                if (canvas) {
-                    this._drawCanvasSpark(canvas, sensor.history, sensor.threshold, sensor.urgency);
-                }
+                const c = document.getElementById(`spark-${s.id}`);
+                if (c) this._drawSpark(c, s.history, s.threshold, s.urgency);
             }, 0);
         });
     }
 
-    _drawCanvasSpark(canvas, history, threshold, urgency) {
+    _drawSpark(canvas, history, threshold, urgency) {
         const dpr = window.devicePixelRatio || 1;
         const rect = canvas.getBoundingClientRect();
-        
         canvas.width = rect.width * dpr;
         canvas.height = rect.height * dpr;
-        
         const ctx = canvas.getContext('2d');
         ctx.scale(dpr, dpr);
-        
-        const width = rect.width;
-        const height = rect.height;
-        
-        ctx.clearRect(0, 0, width, height);
+        const w = rect.width, h = rect.height;
+        ctx.clearRect(0, 0, w, h);
 
         if (history.length < 2) return;
 
-        // Calculate scales
-        // Pad min/max slightly
-        const minVal = Math.min(...history) * 0.9;
-        const maxVal = Math.max(threshold, ...history) * 1.1;
-        const range = maxVal - minVal || 1.0;
+        const minV = Math.min(...history) * 0.9;
+        const maxV = Math.max(threshold, ...history) * 1.1;
+        const range = maxV - minV || 1;
+        const gx = i => (i / (history.length - 1)) * w;
+        const gy = v => h - ((v - minV) / range) * h;
 
-        const getX = (idx) => (idx / (history.length - 1)) * width;
-        const getY = (val) => height - ((val - minVal) / range) * height;
-
-        // 1. Draw threshold line
-        const thresholdY = getY(threshold);
+        // Threshold line
         ctx.beginPath();
-        ctx.moveTo(0, thresholdY);
-        ctx.lineTo(width, thresholdY);
-        ctx.strokeStyle = 'rgba(255, 58, 58, 0.4)';
-        ctx.lineWidth = 1.0;
+        ctx.moveTo(0, gy(threshold));
+        ctx.lineTo(w, gy(threshold));
+        ctx.strokeStyle = 'rgba(160, 50, 50, 0.25)';
+        ctx.lineWidth = 0.5;
         ctx.setLineDash([2, 2]);
         ctx.stroke();
-        ctx.setLineDash([]); // Reset
+        ctx.setLineDash([]);
 
-        // 2. Draw historical trend path
+        // Data line
         ctx.beginPath();
-        ctx.moveTo(getX(0), getY(history[0]));
+        ctx.moveTo(gx(0), gy(history[0]));
         for (let i = 1; i < history.length; i++) {
-            ctx.lineTo(getX(i), getY(history[i]));
+            ctx.lineTo(gx(i), gy(history[i]));
         }
 
-        // Color scale based on urgency
-        let lineColor = '#00d4ff'; // Cyan default
-        if (urgency === 'critical') {
-            lineColor = '#ff3a3a'; // Red
-        } else if (urgency === 'warning') {
-            lineColor = '#ff9f1c'; // Amber
-        }
-        
-        ctx.strokeStyle = lineColor;
-        ctx.lineWidth = 1.5;
+        const color = urgency === 'critical' ? '#884444' :
+                      urgency === 'warning'  ? '#886830' : '#555555';
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
         ctx.stroke();
 
-        // 3. Draw gradient area fill below line
-        ctx.lineTo(width, height);
-        ctx.lineTo(0, height);
+        // Area fill
+        ctx.lineTo(w, h);
+        ctx.lineTo(0, h);
         ctx.closePath();
-        
-        const fillGradient = ctx.createLinearGradient(0, 0, 0, height);
-        if (urgency === 'critical') {
-            fillGradient.addColorStop(0, 'rgba(255, 58, 58, 0.15)');
-            fillGradient.addColorStop(1, 'rgba(255, 58, 58, 0.0)');
-        } else if (urgency === 'warning') {
-            fillGradient.addColorStop(0, 'rgba(255, 159, 28, 0.12)');
-            fillGradient.addColorStop(1, 'rgba(255, 159, 28, 0.0)');
-        } else {
-            fillGradient.addColorStop(0, 'rgba(0, 212, 255, 0.1)');
-            fillGradient.addColorStop(1, 'rgba(0, 212, 255, 0.0)');
-        }
-        
-        ctx.fillStyle = fillGradient;
+        const fill = urgency === 'critical' ? 'rgba(160, 50, 50, 0.06)' :
+                     urgency === 'warning'  ? 'rgba(140, 110, 40, 0.04)' :
+                                              'rgba(100, 100, 100, 0.03)';
+        ctx.fillStyle = fill;
         ctx.fill();
     }
 }

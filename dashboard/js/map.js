@@ -1,7 +1,10 @@
 /**
- * Manages the top-down plant map rendering using Canvas 2D
+ * Plant Map Renderer — Monochrome schematic style
+ *
+ * Draws on a Canvas 2D context using only grayscale + muted red for hazard states.
+ * Looks like a real SCADA engineering schematic, not a consumer UI.
  */
-import { getRiskColor } from './utils.js';
+import { getRiskColor, getSeverity } from './utils.js';
 import { PlumeDrawer } from './plume.js';
 
 export class PlantMapManager {
@@ -9,268 +12,213 @@ export class PlantMapManager {
         this.canvas = canvasEl;
         this.ctx = canvasEl.getContext('2d');
         this.plumeDrawer = new PlumeDrawer();
-        
-        // Plant virtual coordinates size
-        this.virtualWidth = 900;
-        this.virtualHeight = 600;
-        
+
+        this.virtualW = 900;
+        this.virtualH = 600;
+
         // State
-        this.zoneRisks = {}; // zone_id -> score (0-100)
-        this.sensors = {};   // sensor_id -> { zone_id, type, value, status }
-        this.windAngle = 225; // default in degrees (blowing from SW to NE)
-        this.windSpeed = 3.2; // m/s
-        this.activePlume = null; // { zone_id, radius }
-        this.operators = []; // list of operator profiles
-        
-        // Configure standard zone boundaries
+        this.zoneRisks = {};
+        this.windAngle = 225;
+        this.windSpeed = 3.2;
+        this.activePlume = null;
+        this.operators = [];
+
+        // Zone geometry
         this.zones = {
-            0: { name: "Zone A - Tank Farm", x: 30, y: 30, w: 250, h: 160, plumeSource: {x: 155, y: 110} },
-            1: { name: "Zone B - Compressor Hall", x: 310, y: 30, w: 270, h: 160, plumeSource: {x: 445, y: 110} },
-            2: { name: "Zone C - Reactor Area", x: 610, y: 30, w: 260, h: 160, plumeSource: {x: 740, y: 110} },
-            3: { name: "Zone D - Pipe Rack", x: 30, y: 215, w: 250, h: 160, plumeSource: {x: 155, y: 295} },
-            4: { name: "Zone E - Control Room", x: 310, y: 215, w: 270, h: 160, plumeSource: {x: 445, y: 295} },
-            5: { name: "Zone F - Loading Bay", x: 610, y: 215, w: 260, h: 160, plumeSource: {x: 740, y: 295} },
-            6: { name: "Zone G - Utilities", x: 30, y: 400, w: 250, h: 165, plumeSource: {x: 155, y: 480} },
-            7: { name: "Zone H - Flare Stack", x: 610, y: 400, w: 260, h: 165, plumeSource: {x: 740, y: 480} }
+            0: { label: 'A  TANK FARM',       x:  30, y:  30, w: 250, h: 160, ps: { x: 155, y: 110 } },
+            1: { label: 'B  COMPRESSOR HALL',  x: 310, y:  30, w: 270, h: 160, ps: { x: 445, y: 110 } },
+            2: { label: 'C  REACTOR AREA',     x: 610, y:  30, w: 260, h: 160, ps: { x: 740, y: 110 } },
+            3: { label: 'D  PIPE RACK',        x:  30, y: 215, w: 250, h: 160, ps: { x: 155, y: 295 } },
+            4: { label: 'E  CONTROL ROOM',     x: 310, y: 215, w: 270, h: 160, ps: { x: 445, y: 295 } },
+            5: { label: 'F  LOADING BAY',      x: 610, y: 215, w: 260, h: 160, ps: { x: 740, y: 295 } },
+            6: { label: 'G  UTILITIES',        x:  30, y: 400, w: 250, h: 165, ps: { x: 155, y: 480 } },
+            7: { label: 'H  FLARE STACK',      x: 610, y: 400, w: 260, h: 165, ps: { x: 740, y: 480 } },
         };
 
-        // Static equipment list
+        // Equipment markers
         this.equipment = [
-            { id: "T-101", type: "Tank", zone: 0, x: 85, y: 90 },
-            { id: "T-102", type: "Tank", zone: 0, x: 215, y: 90 },
-            { id: "C-201", type: "Compressor", zone: 1, x: 390, y: 90 },
-            { id: "C-202", type: "Compressor", zone: 1, x: 500, y: 90 },
-            { id: "R-301", type: "Reactor", zone: 2, x: 690, y: 95 },
-            { id: "R-302", type: "Reactor", zone: 2, x: 790, y: 95 },
-            { id: "M-401", type: "Pipe", zone: 3, x: 150, y: 280 },
-            { id: "C-501", type: "Console", zone: 4, x: 445, y: 285 },
-            { id: "P-601", type: "Pump", zone: 5, x: 740, y: 280 },
-            { id: "B-701", type: "Reactor", zone: 6, x: 150, y: 470 }, // Utilities boiler
-            { id: "F-801", type: "Flare", zone: 7, x: 740, y: 470 }   // Flare stack
+            { id: 'T-101', x:  85, y:  90 },
+            { id: 'T-102', x: 215, y:  90 },
+            { id: 'C-201', x: 390, y:  90 },
+            { id: 'C-202', x: 500, y:  90 },
+            { id: 'R-301', x: 690, y:  95 },
+            { id: 'R-302', x: 790, y:  95 },
+            { id: 'M-401', x: 150, y: 280 },
+            { id: 'C-501', x: 445, y: 285 },
+            { id: 'P-601', x: 740, y: 280 },
+            { id: 'B-701', x: 150, y: 470 },
+            { id: 'F-801', x: 740, y: 470 },
         ];
 
-        // Resize handler setup
         this.resize();
         window.addEventListener('resize', () => this.resize());
     }
 
     resize() {
         const rect = this.canvas.parentElement.getBoundingClientRect();
-        
-        // Keep 3:2 aspect ratio
         let w = rect.width;
-        let h = rect.width * (this.virtualHeight / this.virtualWidth);
-        
+        let h = w * (this.virtualH / this.virtualW);
         if (h > rect.height) {
             h = rect.height;
-            w = rect.height * (this.virtualWidth / this.virtualHeight);
+            w = h * (this.virtualW / this.virtualH);
         }
-        
         const dpr = window.devicePixelRatio || 1;
         this.canvas.width = w * dpr;
         this.canvas.height = h * dpr;
         this.canvas.style.width = `${w}px`;
         this.canvas.style.height = `${h}px`;
-        
         this.ctx.scale(dpr, dpr);
-        this.currentScale = w / this.virtualWidth;
+        this.scale = w / this.virtualW;
     }
 
-    setZoneRisk(zoneId, score) {
-        this.zoneRisks[zoneId] = score;
-    }
+    setZoneRisk(id, score) { this.zoneRisks[id] = score; }
+    setWind(a, s) { this.windAngle = a; this.windSpeed = s; }
 
-    setWind(angle, speed) {
-        this.windAngle = angle;
-        this.windSpeed = speed;
-    }
-
-    setPlume(zoneId, radiusMeters) {
-        if (radiusMeters > 0) {
-            this.activePlume = { zoneId, radius: radiusMeters };
-            this.plumeDrawer.setTargetRadius(radiusMeters);
+    setPlume(zoneId, radius) {
+        if (radius > 0) {
+            this.activePlume = { zoneId, radius };
+            this.plumeDrawer.setTargetRadius(radius);
         } else {
             this.activePlume = null;
             this.plumeDrawer.setTargetRadius(0);
         }
     }
 
-    setOperators(operatorsList) {
-        this.operators = operatorsList;
-    }
+    setOperators(list) { this.operators = list; }
 
-    update(dt) {
-        this.plumeDrawer.update(dt);
-    }
+    update(dt) { this.plumeDrawer.update(dt); }
 
     draw() {
         const ctx = this.ctx;
         ctx.save();
-        ctx.scale(this.currentScale, this.currentScale);
-        
-        // Clear canvas
-        ctx.clearRect(0, 0, this.virtualWidth, this.virtualHeight);
-        
-        // 1. Draw Grid lines (fine background grid)
-        ctx.strokeStyle = 'rgba(42, 59, 90, 0.15)';
-        ctx.lineWidth = 1;
-        for (let x = 50; x < this.virtualWidth; x += 50) {
-            ctx.beginPath();
-            ctx.moveTo(x, 0);
-            ctx.lineTo(x, this.virtualHeight);
-            ctx.stroke();
+        ctx.scale(this.scale, this.scale);
+        ctx.clearRect(0, 0, this.virtualW, this.virtualH);
+
+        // 1. Background grid — very subtle
+        ctx.strokeStyle = '#161616';
+        ctx.lineWidth = 0.5;
+        for (let x = 50; x < this.virtualW; x += 50) {
+            ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, this.virtualH); ctx.stroke();
         }
-        for (let y = 50; y < this.virtualHeight; y += 50) {
-            ctx.beginPath();
-            ctx.moveTo(0, y);
-            ctx.lineTo(this.virtualWidth, y);
-            ctx.stroke();
+        for (let y = 50; y < this.virtualH; y += 50) {
+            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(this.virtualW, y); ctx.stroke();
         }
 
-        // 2. Draw Zones (rectangles with color gradient matching risk)
-        for (const [id, zone] of Object.entries(this.zones)) {
-            const zoneId = parseInt(id);
-            const risk = this.zoneRisks[zoneId] || 0.0;
-            const zoneColor = getRiskColor(risk);
-            
-            // Draw background fill with low opacity
-            ctx.fillStyle = zoneColor.replace('rgb', 'rgba').replace(')', ', 0.08)');
-            ctx.fillRect(zone.x, zone.y, zone.w, zone.h);
-            
-            // Draw border
-            ctx.strokeStyle = risk > 70.0 ? 'rgba(255, 58, 58, 0.4)' : 'rgba(42, 59, 90, 0.6)';
-            ctx.lineWidth = risk > 70.0 ? 2 : 1.5;
-            ctx.strokeRect(zone.x, zone.y, zone.w, zone.h);
-            
-            // Draw label
-            ctx.fillStyle = risk > 70.0 ? '#ff3a3a' : 'rgba(232, 234, 237, 0.7)';
-            ctx.font = `600 10.5px "Inter", sans-serif`;
-            ctx.fillText(zone.name.toUpperCase(), zone.x + 10, zone.y + 20);
-            
-            // Draw risk score badge
-            ctx.fillStyle = zoneColor;
-            ctx.font = `700 12px "JetBrains Mono", monospace`;
-            ctx.fillText(`${risk.toFixed(1)}%`, zone.x + zone.w - 55, zone.y + 22);
+        // 2. Zones
+        for (const [id, z] of Object.entries(this.zones)) {
+            const risk = this.zoneRisks[parseInt(id)] || 0;
+            const sev = getSeverity(risk);
+
+            // Fill — very low opacity tint
+            if (sev === 'critical') {
+                ctx.fillStyle = 'rgba(160, 50, 50, 0.06)';
+            } else if (sev === 'warning') {
+                ctx.fillStyle = 'rgba(140, 110, 40, 0.04)';
+            } else {
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.015)';
+            }
+            ctx.fillRect(z.x, z.y, z.w, z.h);
+
+            // Border
+            ctx.strokeStyle = sev === 'critical' ? '#4a2020' : '#222222';
+            ctx.lineWidth = sev === 'critical' ? 1.5 : 0.8;
+            ctx.strokeRect(z.x, z.y, z.w, z.h);
+
+            // Label
+            ctx.fillStyle = sev === 'critical' ? '#884444' : '#444444';
+            ctx.font = '500 9px "JetBrains Mono", monospace';
+            ctx.fillText(z.label, z.x + 8, z.y + 16);
+
+            // Risk score
+            const scoreColor = sev === 'critical' ? '#aa3333' :
+                               sev === 'warning'  ? '#886830' : '#444444';
+            ctx.fillStyle = scoreColor;
+            ctx.font = '600 11px "JetBrains Mono", monospace';
+            const scoreText = `${risk.toFixed(1)}%`;
+            const scoreW = ctx.measureText(scoreText).width;
+            ctx.fillText(scoreText, z.x + z.w - scoreW - 8, z.y + 18);
         }
 
-        // 3. Draw Consequence Plume (RAG visualizer)
-        // 1 meter = 3.5 pixels virtual coordinate scale
-        const scalePixelsPerMeter = 3.5;
+        // 3. Plume
         if (this.activePlume) {
             const z = this.zones[this.activePlume.zoneId];
-            if (z) {
-                this.plumeDrawer.draw(ctx, z.plumeSource.x, z.plumeSource.y, scalePixelsPerMeter);
-            }
+            if (z) this.plumeDrawer.draw(ctx, z.ps.x, z.ps.y, 3.5);
         }
 
-        // 4. Draw Static Equipment icons/circles
+        // 4. Equipment markers — small crosses
         this.equipment.forEach(eq => {
-            ctx.beginPath();
-            ctx.arc(eq.x, eq.y, 8, 0, Math.PI * 2);
-            ctx.fillStyle = '#1e2a3a';
-            ctx.strokeStyle = '#8b95a5';
-            ctx.lineWidth = 1.5;
-            ctx.fill();
-            ctx.stroke();
-            
-            // Label
-            ctx.fillStyle = '#8b95a5';
-            ctx.font = `500 8.5px "JetBrains Mono", monospace`;
-            ctx.fillText(eq.id, eq.x - 12, eq.y - 12);
+            const s = 5;
+            ctx.strokeStyle = '#333333';
+            ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(eq.x - s, eq.y); ctx.lineTo(eq.x + s, eq.y); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(eq.x, eq.y - s); ctx.lineTo(eq.x, eq.y + s); ctx.stroke();
+
+            ctx.fillStyle = '#333333';
+            ctx.font = '400 7px "JetBrains Mono", monospace';
+            ctx.fillText(eq.id, eq.x - 10, eq.y - 8);
         });
 
-        // 5. Draw Wind Direction Arrow
-        this._drawWindIndicator(ctx, 830, 520);
+        // 5. Wind indicator — simple arrow
+        this._drawWind(ctx, 830, 530);
 
-        // 6. Draw Workers / Operators inside zones
+        // 6. Operators — small markers
         this.operators.forEach(op => {
-            const zone = this.zones[op.current_zone];
-            if (zone) {
-                // Determine a position inside the zone based on operator hash
-                const h = hashString(op.operator_id);
-                // Keep offset well within the zone card bounds
-                const offsetX = 30 + (h % (zone.w - 60));
-                const offsetY = 50 + ((h >> 4) % (zone.h - 90));
-                const rx = zone.x + offsetX;
-                const ry = zone.y + offsetY;
-                
-                // Draw operator pin
-                this._drawWorkerPin(ctx, rx, ry, op.name, op.role);
-            }
+            const z = this.zones[op.current_zone];
+            if (!z) return;
+            const h = hash(op.operator_id);
+            const rx = z.x + 25 + (h % (z.w - 50));
+            const ry = z.y + 40 + ((h >> 4) % (z.h - 70));
+
+            // Small square marker
+            ctx.fillStyle = '#505050';
+            ctx.fillRect(rx - 2, ry - 2, 4, 4);
+
+            // Name label
+            ctx.fillStyle = '#505050';
+            ctx.font = '400 7px "JetBrains Mono", monospace';
+            ctx.fillText(op.name, rx + 5, ry + 2);
         });
 
         ctx.restore();
     }
 
-    _drawWindIndicator(ctx, x, y) {
+    _drawWind(ctx, x, y) {
         ctx.save();
         ctx.translate(x, y);
 
-        // Draw outer compass ring
+        // Compass circle
         ctx.beginPath();
-        ctx.arc(0, 0, 24, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(139, 149, 165, 0.4)';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-
-        ctx.fillStyle = 'rgba(139, 149, 165, 0.7)';
-        ctx.font = `600 8px "Inter", sans-serif`;
-        ctx.fillText('N', -3, -27);
-
-        // Rotate arrow to wind angle (wind blows towards)
-        // Convert to radians
-        const angleRad = (this.windAngle * Math.PI) / 180.0;
-        ctx.rotate(angleRad);
-
-        // Draw arrow pointing downwind
-        ctx.beginPath();
-        ctx.moveTo(0, -18);
-        ctx.lineTo(6, -6);
-        ctx.lineTo(2, -6);
-        ctx.lineTo(2, 16);
-        ctx.lineTo(-2, 16);
-        ctx.lineTo(-2, -6);
-        ctx.lineTo(-6, -6);
-        ctx.closePath();
-        ctx.fillStyle = '#00d4ff';
-        ctx.fill();
-
-        ctx.restore();
-    }
-
-    _drawWorkerPin(ctx, x, y, name, role) {
-        ctx.save();
-        
-        // Pin body
-        ctx.beginPath();
-        ctx.arc(x, y, 4, 0, Math.PI * 2);
-        ctx.fillStyle = '#00e676'; // safe green
-        ctx.strokeStyle = '#0a0e17';
-        ctx.lineWidth = 1.0;
-        ctx.fill();
-        ctx.stroke();
-
-        // Worker tooltip (name/role)
-        ctx.fillStyle = 'rgba(20, 27, 45, 0.85)';
-        const textWidth = ctx.measureText(name).width;
-        ctx.fillRect(x - textWidth/2 - 4, y + 6, textWidth + 8, 12);
-        ctx.strokeStyle = 'rgba(42, 59, 90, 0.5)';
+        ctx.arc(0, 0, 18, 0, Math.PI * 2);
+        ctx.strokeStyle = '#2a2a2a';
         ctx.lineWidth = 0.5;
-        ctx.strokeRect(x - textWidth/2 - 4, y + 6, textWidth + 8, 12);
+        ctx.stroke();
 
-        ctx.fillStyle = '#e8eaed';
-        ctx.font = `600 7.5px "Inter", sans-serif`;
-        ctx.fillText(name, x - textWidth/2, y + 14);
+        // N label
+        ctx.fillStyle = '#444444';
+        ctx.font = '500 7px "JetBrains Mono", monospace';
+        ctx.fillText('N', -3, -21);
+
+        // Arrow
+        const rad = (this.windAngle * Math.PI) / 180;
+        ctx.rotate(rad);
+        ctx.beginPath();
+        ctx.moveTo(0, -13);
+        ctx.lineTo(4, -4);
+        ctx.lineTo(1, -4);
+        ctx.lineTo(1, 12);
+        ctx.lineTo(-1, 12);
+        ctx.lineTo(-1, -4);
+        ctx.lineTo(-4, -4);
+        ctx.closePath();
+        ctx.fillStyle = '#555555';
+        ctx.fill();
 
         ctx.restore();
     }
 }
 
-// Simple hash helper to distribute operators inside zones stably
-function hashString(str) {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-        hash = str.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    return Math.abs(hash);
+function hash(str) {
+    let h = 0;
+    for (let i = 0; i < str.length; i++) h = str.charCodeAt(i) + ((h << 5) - h);
+    return Math.abs(h);
 }

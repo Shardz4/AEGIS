@@ -1,139 +1,122 @@
 /**
- * Renders safety alerts to the Recommendations side panel feed
+ * Alert Feed Renderer — Structured text, no decoration
+ *
+ * Each alert is a structured text block with severity indicated by
+ * a left border and text weight — no emoji, no colored badges.
  */
 import { formatTimestamp } from './utils.js';
 
 export class AlertFeedManager {
-    constructor(containerEl, badgeEl) {
-        this.containerEl = containerEl;
-        this.badgeEl = badgeEl;
-        this.alerts = []; // List of received alerts
+    constructor(containerEl, countEl) {
+        this.container = containerEl;
+        this.countEl = countEl;
+        this.alerts = [];
     }
 
-    /**
-     * Appends a new operator alert card to the feed
-     */
-    addAlert(alertData) {
-        // Prevent duplicate alert IDs (e.g. if websocket retransmits)
-        if (this.alerts.some(a => a.alert_id === alertData.alert_id)) {
-            return;
-        }
+    addAlert(data) {
+        // Deduplicate
+        if (this.alerts.some(a => a.alert_id === data.alert_id)) return;
 
-        this.alerts.unshift(alertData); // Latest alert first
+        this.alerts.unshift(data);
+        this.countEl.textContent = String(this.alerts.length);
 
-        // Update badge count
-        this.badgeEl.textContent = `${this.alerts.length} Alert${this.alerts.length !== 1 ? 's' : ''}`;
-        
-        // Remove no-alerts placeholder if it is present
-        const placeholder = this.containerEl.querySelector('.no-alerts-placeholder');
-        if (placeholder) {
-            this.containerEl.innerHTML = '';
-        }
+        // Remove empty state
+        const empty = this.container.querySelector('.empty-state');
+        if (empty) this.container.innerHTML = '';
 
-        // Render card
-        const card = document.createElement('div');
-        const isCritical = alertData.risk_score >= 70.0;
-        card.className = `alert-card ${isCritical ? 'critical' : 'warning'}`;
-        card.id = `alert-${alertData.alert_id}`;
+        const isCritical = data.risk_score >= 70;
+        const severityClass = isCritical ? 'severity-critical' : 'severity-warning';
+        const severityLabel = isCritical ? 'CRITICAL' : 'WARNING';
+        const severityTextClass = isCritical ? 'critical' : 'warning';
+        const blinkClass = isCritical ? 'blink-critical' : '';
 
-        // Format citations
+        // Build citations HTML
         let citationsHtml = '';
-        if (alertData.regulatory_citations && alertData.regulatory_citations.length > 0) {
+        if (data.regulatory_citations && data.regulatory_citations.length) {
+            const entries = data.regulatory_citations.map(c => `
+                <div class="citation-entry">
+                    <div class="citation-header">
+                        <span>${c.source} — ${c.section}</span>
+                        <span class="citation-sim">sim ${c.similarity_score.toFixed(3)}</span>
+                    </div>
+                    <div class="citation-text">${c.relevance}</div>
+                </div>
+            `).join('');
+
             citationsHtml = `
                 <div class="alert-section">
-                    <h4>Regulatory Compliance Citations</h4>
-                    <div class="citation-list">
-                        ${alertData.regulatory_citations.map(c => `
-                            <div class="citation-badge">
-                                <div class="citation-badge-header">
-                                    <span>📋 ${c.source} — ${c.section}</span>
-                                    <span class="font-mono">sim: ${c.similarity_score.toFixed(3)}</span>
-                                </div>
-                                <div class="citation-badge-relevance">
-                                    "${c.relevance}"
-                                </div>
-                            </div>
-                        `).join('')}
-                    </div>
+                    <div class="alert-section-label">Regulatory basis</div>
+                    ${entries}
                 </div>
             `;
         } else {
             citationsHtml = `
                 <div class="alert-section">
-                    <h4>Regulatory Compliance Basis</h4>
-                    <p class="text-secondary italic">No specific regulatory citations available for this condition.</p>
+                    <div class="alert-section-label">Regulatory basis</div>
+                    <p style="color:var(--text-3); font-style:italic">No matching regulatory citations for this condition.</p>
                 </div>
             `;
         }
 
-        // Format abstentions
-        let abstentionsHtml = '';
-        if (alertData.abstention_notes && alertData.abstention_notes.length > 0) {
-            abstentionsHtml = `
+        // Build abstention HTML
+        let abstentionHtml = '';
+        if (data.abstention_notes && data.abstention_notes.length) {
+            abstentionHtml = `
                 <div class="alert-section">
-                    <div class="abstention-banner">
-                        <strong>⚠️ RAG Safety Warnings:</strong>
-                        <ul>
-                            ${alertData.abstention_notes.map(note => `<li>${note}</li>`).join('')}
-                        </ul>
+                    <div class="abstention-block">
+                        <strong>RAG abstention flags</strong>
+                        <ul>${data.abstention_notes.map(n => `<li>${n}</li>`).join('')}</ul>
                     </div>
                 </div>
             `;
         }
 
-        // Format actions
-        const actionsHtml = alertData.actions && alertData.actions.length > 0
-            ? `
+        // Build actions HTML
+        let actionsHtml = '';
+        if (data.actions && data.actions.length) {
+            actionsHtml = `
                 <div class="alert-section">
-                    <h4>Prioritized Actions</h4>
-                    <ul>
-                        ${alertData.actions.map(act => `<li>${act}</li>`).join('')}
-                    </ul>
+                    <div class="alert-section-label">Recommended actions</div>
+                    <ol>${data.actions.map(a => `<li>${a}</li>`).join('')}</ol>
                 </div>
-            `
-            : '';
+            `;
+        }
 
-        // Risk and TTI
-        const footerInfo = `
-            <div class="alert-card-footer">
-                <span>Risk Score: <strong class="${isCritical ? 'text-danger' : 'text-warning'} font-mono">${alertData.risk_score.toFixed(1)}%</strong></span>
-                <span>ID: <span class="font-mono">${alertData.alert_id}</span></span>
-            </div>
-        `;
+        const entry = document.createElement('div');
+        entry.className = `alert-entry ${severityClass} ${blinkClass} data-enter`;
+        entry.id = `alert-${data.alert_id}`;
 
-        card.innerHTML = `
-            <div class="alert-card-header">
-                <div class="title-area">
-                    <span class="badge ${isCritical ? 'badge-critical' : 'badge-warning'}">
-                        ${isCritical ? '🔴 CRITICAL ALERT' : '⚠️ WARNING'}
-                    </span>
-                    <h3 class="text-primary" style="margin-top: 6px;">Zone ${alertData.zone_id} Incident Risk</h3>
-                    <span class="timestamp font-mono">${formatTimestamp(alertData.timestamp)}</span>
-                </div>
+        entry.innerHTML = `
+            <div class="alert-header">
+                <span class="alert-severity ${severityTextClass}">${severityLabel}</span>
+                <span class="alert-meta">${data.alert_id}</span>
             </div>
-            
+            <div class="alert-title">Zone ${data.zone_id} Incident Risk</div>
+            <div class="alert-risk-line">
+                ${formatTimestamp(data.timestamp)} &mdash;
+                Risk <span class="risk-val ${severityTextClass}">${data.risk_score.toFixed(1)}%</span>
+            </div>
+
             <div class="alert-section">
-                <h4>Situation Summary</h4>
-                <p class="text-primary">${alertData.situation}</p>
+                <div class="alert-section-label">Situation</div>
+                <p>${data.situation}</p>
             </div>
-            
+
             ${actionsHtml}
             ${citationsHtml}
-            ${abstentionsHtml}
-            ${footerInfo}
+            ${abstentionHtml}
         `;
 
-        this.containerEl.insertBefore(card, this.containerEl.firstChild);
+        this.container.insertBefore(entry, this.container.firstChild);
     }
 
     clear() {
         this.alerts = [];
-        this.badgeEl.textContent = '0 Alerts';
-        this.containerEl.innerHTML = `
-            <div class="no-alerts-placeholder fade-in">
-                <div class="placeholder-icon">✓</div>
-                <p class="placeholder-title">Systems Operating Normally</p>
-                <p class="placeholder-desc">No high-risk conditions detected. All zone scores nominal.</p>
+        this.countEl.textContent = '0';
+        this.container.innerHTML = `
+            <div class="empty-state" id="alert-empty">
+                <span class="empty-label">Nominal</span>
+                <span class="empty-desc">No actionable conditions detected</span>
             </div>
         `;
     }

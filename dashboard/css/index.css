@@ -1,111 +1,91 @@
-/* Design Tokens and Core Variables */
+/* ============================================================
+   AEGIS Design System — Mission-Critical Monochrome
+   
+   Color is used EXCLUSIVELY for safety-state indication.
+   Everything else is grayscale.
+   ============================================================ */
+
 :root {
-    --bg-color: #0a0e17;
-    --surface-color: #141b2d;
-    --surface-elevated: #1e2a3a;
-    
-    --accent-color: #00d4ff; /* Electric Cyan */
-    --accent-glow: rgba(0, 212, 255, 0.15);
-    
-    --safe-color: #00e676; /* Green */
-    --safe-glow: rgba(0, 230, 118, 0.1);
-    
-    --warning-color: #ff9f1c; /* Amber */
-    --warning-glow: rgba(255, 159, 28, 0.15);
-    
-    --critical-color: #ff3a3a; /* Red */
-    --critical-glow: rgba(255, 58, 58, 0.2);
-    
-    --text-primary: #e8eaed;
-    --text-secondary: #8b95a5;
-    --border-color: #2a3b5a;
-    --border-light: rgba(42, 59, 90, 0.5);
-    
-    --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
-    --font-mono: 'JetBrains Mono', monospace;
-    
-    --border-radius: 8px;
-    --border-radius-sm: 4px;
-    
-    --glass-bg: rgba(20, 27, 45, 0.7);
-    --glass-blur: blur(12px);
-    --glass-border: rgba(42, 59, 90, 0.4);
-    
-    --header-height: 60px;
-    --footer-height: 110px;
+    /* Surfaces */
+    --bg:              #0a0a0a;
+    --surface:         #111111;
+    --surface-raised:  #1a1a1a;
+    --surface-inset:   #080808;
+
+    /* Borders */
+    --rule:            #222222;
+    --rule-strong:     #333333;
+
+    /* Text hierarchy (grayscale only) */
+    --text-1:          #e0e0e0;   /* Primary data */
+    --text-2:          #999999;   /* Labels, secondary */
+    --text-3:          #555555;   /* Tertiary, disabled */
+    --text-dim:        #383838;   /* Background grid, very subtle */
+
+    /* Safety-state colors — the ONLY non-gray colors in the system.
+       Used strictly for functional severity indication. */
+    --state-nominal:   #555555;   /* Gray — no attention needed */
+    --state-watch:     #888888;   /* Brighter gray — low concern */
+    --state-warning:   #b08830;   /* Muted amber — requires awareness */
+    --state-critical:  #cc3333;   /* Restrained red — demands action */
+
+    /* Functional accents (very rare) */
+    --accent-data:     #7a7a7a;   /* Sparkline stroke, data line */
+    --plume-fill:      rgba(180, 60, 60, 0.12);
+    --plume-stroke:    rgba(180, 60, 60, 0.35);
+
+    /* Typography */
+    --font-mono:  'JetBrains Mono', 'Cascadia Code', 'SF Mono', 'Consolas', monospace;
+    --font-sans:  'Inter', system-ui, -apple-system, sans-serif;
+
+    /* Spacing */
+    --header-h:  44px;
+    --footer-h:  90px;
+    --gap:       1px;   /* Border-gap grid */
 }
 
-/* Reset & Base Elements */
-* {
+/* === Reset === */
+*, *::before, *::after {
     margin: 0;
     padding: 0;
     box-sizing: border-box;
-    -webkit-font-smoothing: antialiased;
 }
 
-body {
-    background-color: var(--bg-color);
-    color: var(--text-primary);
-    font-family: var(--font-sans);
-    font-size: 14px;
+html, body {
+    height: 100%;
     overflow: hidden;
-    height: 100vh;
+    background: var(--bg);
+    color: var(--text-1);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
 }
 
-h1, h2, h3, h4, h5 {
-    font-weight: 600;
-    color: var(--text-primary);
-}
-
-a {
-    color: var(--accent-color);
-    text-decoration: none;
-}
-
-a:hover {
-    text-decoration: underline;
-}
-
-/* Scrollbars */
+/* === Scrollbar (minimal, functional) === */
 .scrollable {
     overflow-y: auto;
     scrollbar-width: thin;
-    scrollbar-color: var(--border-color) transparent;
+    scrollbar-color: #2a2a2a transparent;
 }
-
-.scrollable::-webkit-scrollbar {
-    width: 6px;
-}
-
-.scrollable::-webkit-scrollbar-track {
-    background: transparent;
-}
-
+.scrollable::-webkit-scrollbar { width: 4px; }
+.scrollable::-webkit-scrollbar-track { background: transparent; }
 .scrollable::-webkit-scrollbar-thumb {
-    background-color: var(--border-color);
-    border-radius: 10px;
+    background: #2a2a2a;
+    border-radius: 0;
 }
 
-.scrollable::-webkit-scrollbar-thumb:hover {
-    background-color: var(--text-secondary);
-}
+/* === Utility === */
+.hidden { display: none !important; }
+.text-1  { color: var(--text-1); }
+.text-2  { color: var(--text-2); }
+.text-3  { color: var(--text-3); }
+.text-nom { color: var(--state-nominal); }
+.text-wrn { color: var(--state-warning); }
+.text-crt { color: var(--state-critical); }
 
-/* Utility classes */
-.font-mono {
-    font-family: var(--font-mono);
-}
-
-.text-primary { color: var(--text-primary); }
-.text-secondary { color: var(--text-secondary); }
-.text-accent { color: var(--accent-color); }
-.text-safe { color: var(--safe-color); }
-.text-warning { color: var(--warning-color); }
-.text-danger { color: var(--critical-color); }
-
-.hidden {
-    display: none !important;
-}
-
-.font-bold {
-    font-weight: 700;
+.uppercase {
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
 }

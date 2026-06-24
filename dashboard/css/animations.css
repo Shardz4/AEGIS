@@ -1,127 +1,27 @@
-/* Status Dot Pulsing */
-@keyframes pulse-safe {
-    0% {
-        box-shadow: 0 0 0 0 rgba(0, 230, 118, 0.4);
-    }
-    70% {
-        box-shadow: 0 0 0 6px rgba(0, 230, 118, 0);
-    }
-    100% {
-        box-shadow: 0 0 0 0 rgba(0, 230, 118, 0);
-    }
+/* ============================================================
+   Animations — Functional only. No decoration.
+   
+   The only animation in the system is a slow blink for
+   critical-state elements. This is a standard convention
+   in safety-critical control systems (DIN EN 62682).
+   ============================================================ */
+
+@keyframes critical-blink {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.5; }
 }
 
-@keyframes pulse-critical {
-    0% {
-        transform: scale(1);
-        box-shadow: 0 0 0 0 rgba(255, 58, 58, 0.5);
-    }
-    50% {
-        transform: scale(1.05);
-        box-shadow: 0 0 0 8px rgba(255, 58, 58, 0);
-    }
-    100% {
-        transform: scale(1);
-        box-shadow: 0 0 0 0 rgba(255, 58, 58, 0);
-    }
+/* Applied to zone rows and alert entries at CRITICAL severity */
+.blink-critical {
+    animation: critical-blink 1.8s ease-in-out infinite;
 }
 
-@keyframes pulse-warning {
-    0% {
-        box-shadow: 0 0 0 0 rgba(255, 159, 28, 0.5);
-    }
-    70% {
-        box-shadow: 0 0 0 6px rgba(255, 159, 28, 0);
-    }
-    100% {
-        box-shadow: 0 0 0 0 rgba(255, 159, 28, 0);
-    }
-}
-
-/* Slide in from right for Alerts */
-@keyframes slide-in-right {
-    0% {
-        transform: translateX(100px);
-        opacity: 0;
-    }
-    100% {
-        transform: translateX(0);
-        opacity: 1;
-    }
-}
-
-/* Pulse animation classes */
-.dot-safe {
-    animation: pulse-safe 2s infinite;
-}
-
-.dot-warning {
-    animation: pulse-warning 2s infinite;
-}
-
-.dot-danger {
-    animation: pulse-critical 1.5s infinite;
-}
-
-/* Zone Card Glowing pulse when risk is high */
-@keyframes border-glow-critical {
-    0% {
-        border-color: var(--border-color);
-        box-shadow: 0 0 5px rgba(255, 58, 58, 0.1);
-    }
-    50% {
-        border-color: var(--critical-color);
-        box-shadow: 0 0 15px rgba(255, 58, 58, 0.25);
-    }
-    100% {
-        border-color: var(--border-color);
-        box-shadow: 0 0 5px rgba(255, 58, 58, 0.1);
-    }
-}
-
-.zone-card.level-high {
-    animation: border-glow-critical 2s infinite ease-in-out;
-}
-
-/* Alert Slide-in animation */
-.alert-card {
-    animation: slide-in-right 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-/* Fade in for loaded data */
-@keyframes fade-in {
+/* Fade-in for new data elements */
+@keyframes data-enter {
     from { opacity: 0; }
-    to { opacity: 1; }
+    to   { opacity: 1; }
 }
 
-.fade-in {
-    animation: fade-in 0.4s ease forwards;
-}
-
-/* Lead Time Pulse */
-@keyframes lead-time-pulse {
-    0% {
-        background-color: rgba(0, 212, 255, 0.05);
-        border-color: var(--border-color);
-    }
-    50% {
-        background-color: rgba(0, 212, 255, 0.15);
-        border-color: var(--accent-color);
-        box-shadow: 0 0 10px rgba(0, 212, 255, 0.2);
-    }
-    100% {
-        background-color: rgba(0, 212, 255, 0.05);
-        border-color: var(--border-color);
-    }
-}
-
-.lead-time-display {
-    animation: lead-time-pulse 2s infinite ease-in-out;
-    padding: 6px 12px;
-    border-radius: var(--border-radius-sm);
-    border: 1px solid var(--border-color);
-    display: flex;
-    align-items: center;
-    font-size: 13px;
-    font-weight: 600;
+.data-enter {
+    animation: data-enter 0.2s ease forwards;
 }

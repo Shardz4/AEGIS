@@ -4,13 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AEGIS — Adaptive Engine for Graded Industrial Safety</title>
-    
-    <!-- Typography -->
+    <meta name="description" content="AEGIS real-time safety intelligence dashboard for industrial plant operations monitoring.">
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-    
-    <!-- CSS Layout & Components -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
     <link rel="stylesheet" href="css/index.css">
     <link rel="stylesheet" href="css/layout.css">
     <link rel="stylesheet" href="css/components.css">
@@ -18,107 +17,108 @@
 </head>
 <body>
     <div class="app-container">
+
         <!-- HEADER -->
         <header class="app-header">
-            <div class="header-title-container">
-                <div class="logo-pulse"></div>
+            <div class="header-left">
                 <h1>AEGIS</h1>
-                <span class="divider">|</span>
-                <span class="subtitle">Adaptive Engine for Graded Safety</span>
+                <span class="system-label">Adaptive Engine for Graded Industrial Safety</span>
             </div>
-            
-            <div class="header-controls">
-                <button id="demo-btn" class="btn btn-primary btn-demo">
-                    <span class="icon">🚀</span> Run Demo Scenario
-                </button>
+            <div class="header-right">
+                <button id="demo-btn" class="btn-demo">RUN DEMO</button>
                 <div class="lead-time-display hidden" id="lead-time-container">
-                    Lead Time: <span id="lead-time-val" class="text-primary font-mono">0m 00s</span>
+                    LEAD TIME <span class="lead-time-val" id="lead-time-val">0m 00s</span>
                 </div>
-                <div class="status-indicator">
-                    <span id="conn-dot" class="dot dot-danger"></span>
-                    <span id="conn-text">Disconnected</span>
+                <div class="header-status" id="conn-status">
+                    STATUS <span class="status-val" id="conn-text">DISCONNECTED</span>
                 </div>
-                <div class="clock font-mono" id="current-clock">00:00:00</div>
+                <div class="header-clock" id="current-clock">00:00:00</div>
             </div>
         </header>
 
-        <!-- MAIN CONTENT (GRID) -->
+        <!-- MAIN GRID -->
         <main class="app-main">
-            <!-- LEFT PANEL: Zone Cards -->
+
+            <!-- LEFT: Zone Table -->
             <section class="panel left-panel">
                 <div class="panel-header">
                     <h2>Plant Zones</h2>
-                    <span class="badge" id="zone-count-badge">8 Active</span>
+                    <span class="count" id="zone-count">8</span>
                 </div>
-                <div class="panel-content scrollable" id="zone-cards-container">
-                    <!-- Cards will be populated programmatically -->
-                    <div class="loading-placeholder">Initializing zone feeds...</div>
+                <div class="panel-content scrollable" id="zone-table-container">
+                    <div class="empty-state">
+                        <span class="empty-label">Initializing</span>
+                        <span class="empty-desc">Waiting for zone telemetry feed</span>
+                    </div>
                 </div>
             </section>
 
-            <!-- CENTER PANEL: Plant Map Canvas -->
+            <!-- CENTER: Plant Map -->
             <section class="panel center-panel">
                 <div class="panel-header map-header">
-                    <h2>Plant Map — Live Overlay</h2>
-                    <div class="wind-info font-mono" id="wind-display">
-                        Wind: <span id="wind-dir" class="text-accent">N/A</span> @ <span id="wind-speed" class="text-accent">0 m/s</span>
+                    <h2>Plant Schematic</h2>
+                    <div class="wind-readout">
+                        WIND <span class="wind-val" id="wind-dir">---</span>
+                        <span class="wind-val" id="wind-speed">0</span> m/s
                     </div>
                 </div>
                 <div class="map-container" id="canvas-container">
                     <canvas id="map-canvas"></canvas>
-                    
-                    <!-- Glassmorphism overlay panel for current hazard details -->
-                    <div class="map-overlay-card glass hidden" id="hazard-overlay">
-                        <div class="overlay-title">⚠️ ACTIVE CONSEQUENCE PLUME</div>
+
+                    <!-- Plume data readout overlay -->
+                    <div class="map-overlay hidden" id="hazard-overlay">
+                        <div class="overlay-label">Active consequence plume</div>
                         <div class="overlay-row">
-                            <span class="label">Source:</span>
-                            <span class="val font-mono" id="plume-source">Zone 2</span>
+                            <span class="ov-key">Source</span>
+                            <span class="ov-val" id="plume-source">---</span>
                         </div>
                         <div class="overlay-row">
-                            <span class="label">Hazard Radius:</span>
-                            <span class="val font-mono text-danger" id="plume-radius">0.0m</span>
+                            <span class="ov-key">Radius</span>
+                            <span class="ov-val" id="plume-radius">0.0 m</span>
                         </div>
                         <div class="overlay-row">
-                            <span class="label">Gas Species:</span>
-                            <span class="val font-mono" id="plume-gas">Methane</span>
+                            <span class="ov-key">Species</span>
+                            <span class="ov-val" id="plume-gas">---</span>
                         </div>
                         <div class="overlay-row">
-                            <span class="label">Est. Release Rate:</span>
-                            <span class="val font-mono" id="plume-rate">0.0 kg/s</span>
+                            <span class="ov-key">Release</span>
+                            <span class="ov-val" id="plume-rate">0.0 kg/s</span>
                         </div>
                     </div>
                 </div>
             </section>
 
-            <!-- RIGHT PANEL: Alert Feed -->
+            <!-- RIGHT: Alert Feed -->
             <section class="panel right-panel">
                 <div class="panel-header">
-                    <h2>Operator Recommendations</h2>
-                    <span class="badge badge-warning" id="alert-count-badge">0 Alerts</span>
+                    <h2>Operator Alerts</h2>
+                    <span class="count" id="alert-count">0</span>
                 </div>
                 <div class="panel-content scrollable" id="alert-feed-container">
-                    <div class="no-alerts-placeholder">
-                        <div class="placeholder-icon">✓</div>
-                        <p class="placeholder-title">Systems Operating Normally</p>
-                        <p class="placeholder-desc">No high-risk conditions detected. All zone scores nominal.</p>
+                    <div class="empty-state" id="alert-empty">
+                        <span class="empty-label">Nominal</span>
+                        <span class="empty-desc">No actionable conditions detected</span>
                     </div>
                 </div>
             </section>
+
         </main>
 
-        <!-- BOTTOM PANEL: TTI Countdown Sparklines -->
+        <!-- FOOTER: Sparklines -->
         <footer class="app-footer">
-            <div class="footer-title">
-                <h3>TTI Countdown Sparklines</h3>
-                <span class="caption">Top 5 Trending Hazards (Last 60s)</span>
+            <div class="footer-label">
+                <h3>Sensor Trends</h3>
+                <span class="caption">Top trending — last 60s</span>
             </div>
             <div class="footer-content" id="sparklines-container">
-                <div class="loading-placeholder">No active sensor trends. Normal operation.</div>
+                <div class="empty-state" style="height: auto; padding: 0;">
+                    <span class="empty-desc">No active trends</span>
+                </div>
             </div>
         </footer>
+
     </div>
 
-    <!-- ES Module Main Entry -->
     <script type="module" src="js/app.js"></script>
 </body>
 </html>
