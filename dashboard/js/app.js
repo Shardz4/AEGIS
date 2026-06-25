@@ -7,6 +7,7 @@
 import { PlantMapManager } from './map.js';
 import { SparklineManager } from './charts.js';
 import { AlertFeedManager } from './alerts.js';
+import { VoiceAnnouncer } from './voice.js';
 import { formatTimestamp, getSeverity, getSeverityCode } from './utils.js';
 
 const ZONE_NAMES = [
@@ -47,6 +48,7 @@ class AegisApp {
         this.mapManager = new PlantMapManager(document.getElementById('map-canvas'));
         this.chartsManager = new SparklineManager();
         this.alertsManager = new AlertFeedManager(this.alertContainer, this.alertCount);
+        this.voiceAnnouncer = new VoiceAnnouncer(document.getElementById('voice-btn'));
 
         // State
         this.ws = null;
@@ -166,6 +168,7 @@ class AegisApp {
 
             case 'alert':
                 this.alertsManager.addAlert(msg);
+                this.voiceAnnouncer.announce(msg);
                 break;
 
             case 'fatigue_update':
