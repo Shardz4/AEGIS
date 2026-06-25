@@ -22,6 +22,8 @@ export class PlantMapManager {
         this.windSpeed = 3.2;
         this.activePlume = null;
         this.operators = [];
+        this.evacPaths = {};
+        this.blockedZones = [];
 
         // Zone geometry
         this.zones = {
@@ -72,6 +74,16 @@ export class PlantMapManager {
     }
 
     setZoneRisk(id, score) { this.zoneRisks[id] = score; }
+    setEvacPath(startZoneId, path) {
+        if (path) {
+            this.evacPaths[startZoneId] = path;
+        } else {
+            delete this.evacPaths[startZoneId];
+        }
+    }
+    setBlockedZones(list) {
+        this.blockedZones = list || [];
+    }
     setWind(a, s) { this.windAngle = a; this.windSpeed = s; }
 
     setPlume(zoneId, radius) {
@@ -178,6 +190,100 @@ export class PlantMapManager {
             ctx.font = '400 7px "JetBrains Mono", monospace';
             ctx.fillText(op.name, rx + 5, ry + 2);
         });
+
+        // 7. Slashed/Blocked Zones (Ø Overlay)
+        ctx.save();
+        this.blockedZones.forEach(zId => {
+            const z = this.zones[zId];
+            if (!z) return;
+            
+            ctx.strokeStyle = 'rgba(160, 50, 50, 0.4)'; // Muted red-gray block
+            ctx.lineWidth = 1.0;
+            
+            // Diagonal cross lines over the zone boundaries
+            ctx.beginPath();
+            ctx.moveTo(z.x, z.y);
+            ctx.lineTo(z.x + z.w, z.y + z.h);
+            ctx.stroke();
+            
+            ctx.beginPath();
+            ctx.moveTo(z.x, z.y + z.h);
+            ctx.lineTo(z.x + z.w, z.y);
+            ctx.stroke();
+
+            // Blocked Ø symbol in the center
+            ctx.strokeStyle = '#884444';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.arc(z.ps.x, z.ps.y, 16, 0, Math.PI * 2);
+            ctx.stroke();
+            
+            ctx.beginPath();
+            ctx.moveTo(z.ps.x - 12, z.ps.y + 12);
+            ctx.lineTo(z.ps.x + 12, z.ps.y - 12);
+            ctx.stroke();
+        });
+        ctx.restore();
+
+        // 8. Evacuation Paths
+        ctx.save();
+        for (const [startId, path] of Object.entries(this.evacPaths)) {
+            if (!path || path.length < 2) continue;
+            
+            ctx.strokeStyle = '#ffffff'; // High-contrast white for evac path
+            ctx.lineWidth = 2.0;
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+            
+            const dashLen = 6;
+            const gapLen = 4;
+            ctx.setLineDash([dashLen, gapLen]);
+            
+            // Animate scroll direction
+            const speed = 25; // px/sec
+            const offset = (Date.now() / 1000 * speed) % (dashLen + gapLen);
+            ctx.lineDashOffset = -offset;
+            
+            ctx.beginPath();
+            const startZone = this.zones[path[0]];
+            if (startZone) {
+                ctx.moveTo(startZone.ps.x, startZone.ps.y);
+            }
+            for (let i = 1; i < path.length; i++) {
+                const nextZone = this.zones[path[i]];
+                if (nextZone) {
+                    ctx.lineTo(nextZone.ps.x, nextZone.ps.y);
+                }
+            }
+            ctx.stroke();
+            
+            // Draw directional arrows
+            ctx.setLineDash([]);
+            for (let i = 0; i < path.length - 1; i++) {
+                const z1 = this.zones[path[i]];
+                const z2 = this.zones[path[i+1]];
+                if (!z1 || !z2) continue;
+                
+                const midX = (z1.ps.x + z2.ps.x) / 2;
+                const midY = (z1.ps.y + z2.ps.y) / 2;
+                const angle = Math.atan2(z2.ps.y - z1.ps.y, z2.ps.x - z1.ps.x);
+                
+                ctx.save();
+                ctx.translate(midX, midY);
+                ctx.rotate(angle);
+                
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.moveTo(-4, -3);
+                ctx.lineTo(0, 0);
+                ctx.lineTo(-4, 3);
+                ctx.stroke();
+                
+                ctx.restore();
+            }
+        }
+        ctx.restore();
 
         ctx.restore();
     }

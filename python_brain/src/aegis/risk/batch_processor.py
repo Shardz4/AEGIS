@@ -141,8 +141,14 @@ class BatchProcessor:
         assessments = []
         now = time.time()
 
+        # Step A: Precompute all evidences and active plume zones to build global context
+        zone_evidences = {}
+        zone_permits = {}
+        zone_workers = {}
+        zone_fatigues = {}
+        all_plumes = {}
+
         for zone_id in range(8):
-            # 1. Build evidence dictionary
             evidence = {}
             
             # SCADA readings
@@ -159,7 +165,6 @@ class BatchProcessor:
             max_urgency = "normal"
             max_tti_val = None
             
-            # Map TTI urgency to highest active state across all sensors in this zone
             urgency_levels = {"normal": 0, "watch": 1, "warning": 2, "critical": 3}
             for s_type, (tti_secs, _, urg_str) in zone_ttis.items():
                 if urgency_levels.get(urg_str, 0) > urgency_levels.get(max_urgency, 0):
@@ -168,12 +173,9 @@ class BatchProcessor:
 
             evidence["TTI_Urgency"] = max_urgency
             evidence["_tti_seconds"] = max_tti_val
-
-            # Equipment Age (Mocked from graph: get age of oldest equipment in zone)
-            # For simplicity, default to mid
             evidence["EquipAge"] = "mid"
 
-            # Permits
+            # Permits & Workers
             active_permits = self.permit_store.get_active_for_zone(zone_id)
             has_hotwork = any(p.permit_type == "HotWork" for p in active_permits)
             has_confined = any(p.permit_type == "ConfinedSpace" for p in active_permits)
@@ -195,10 +197,10 @@ class BatchProcessor:
             plume = self.latest_plumes.get(zone_id)
             if plume:
                 evidence["_plume_radius_m"] = plume.get("hazard_radius_m")
-                # If plume overlaps with other zones, we add the workers in those zones to risk
                 affected_zones = plume.get("affected_zones", [])
                 plume_ctx = self.equipment_graph.get_affected_by_plume(affected_zones)
                 evidence["_affected_workers"] += plume_ctx["total_workers_at_risk"]
+                all_plumes[zone_id] = plume
 
             # Fatigue Score
             zone_fatigue = self.fatigue_monitor.get_zone_fatigue(zone_id)
@@ -207,9 +209,45 @@ class BatchProcessor:
             evidence["_avg_fatigue"] = zone_fatigue.avg_fatigue_score
             evidence["_most_fatigued_operator"] = zone_fatigue.most_fatigued_operator
 
-            # Compute risk
-            assessment = self.risk_engine.compute_risk(zone_id, now, evidence)
+            zone_evidences[zone_id] = evidence
+            zone_permits[zone_id] = active_permits
+            zone_workers[zone_id] = total_workers
+            zone_fatigues[zone_id] = zone_fatigue
+
+        # Step B: Calculate risk assessments for all zones using pre-assembled evidence
+        zone_risk_metrics = {}
+        for zone_id in range(8):
+            assessment = self.risk_engine.compute_risk(zone_id, now, zone_evidences[zone_id])
             assessments.append(assessment)
+            zone_risk_metrics[zone_id] = assessment.risk_score
+
+        # Collect all plume zones dynamically
+        plume_zones = []
+        for p_res in all_plumes.values():
+            affected = p_res.get("affected_zones", [])
+            plume_zones.extend(affected)
+        plume_zones = list(set(plume_zones))
+
+        # Collect blocked zones (risk score >= 70 or plume is active)
+        blocked_zones = [z for z in range(8) if zone_risk_metrics.get(z, 0.0) >= 70.0 or z in plume_zones]
+
+        # Step C: Queue updates and perform pathfinding (Plan 1)
+        for assessment in assessments:
+            zone_id = assessment.zone_id
+            active_permits = zone_permits[zone_id]
+            total_workers = zone_workers[zone_id]
+            zone_fatigue = zone_fatigues[zone_id]
+
+            # Safe evacuation routing:
+            # Calculate path if there are active workers AND (risk is elevated OR zone in plume) AND start is not Zone 4
+            evac_path = None
+            if total_workers > 0 and (assessment.risk_score >= 40.0 or zone_id in plume_zones) and zone_id != 4:
+                evac_path = self.equipment_graph.find_safe_evacuation_path(
+                    start_zone_id=zone_id,
+                    target_zone_id=4,
+                    zone_risk_metrics=zone_risk_metrics,
+                    plume_zones=plume_zones
+                )
 
             # Queue zone update for dashboard
             self.pending_updates.append({
@@ -219,7 +257,9 @@ class BatchProcessor:
                 "risk_level": assessment.recommendation_urgency.lower(),
                 "active_permits": [p.permit_type for p in active_permits],
                 "worker_count": total_workers,
-                "fatigue_level": zone_fatigue.fatigue_level
+                "fatigue_level": zone_fatigue.fatigue_level,
+                "evac_path": evac_path,
+                "blocked_zones": blocked_zones
             })
             
             # Queue fatigue update for dashboard

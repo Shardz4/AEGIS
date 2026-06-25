@@ -168,3 +168,166 @@ class EquipmentGraph:
                         "zone_id": z_id
                     })
         return candidates
+
+    def load_site_map(self, config_data: dict):
+        """
+        Resets the zone topology and loads a custom site map dynamically.
+        config_data format:
+        {
+            "zones": [
+                {"zone_id": 0, "name": "Zone A - Tank Farm", "coords": [100, 100], "is_safe_haven": False},
+                ...
+            ],
+            "adjacencies": [
+                [0, 1], [1, 2], ...
+            ]
+        }
+        """
+        # Save existing equipment and sensors to restore them in the new zones
+        old_nodes = list(self.g.nodes(data=True))
+        old_edges = list(self.g.edges(data=True))
+        
+        # Clear graph
+        self.g.clear()
+        
+        # Add new zones from configuration
+        for zone in config_data.get("zones", []):
+            z_id = zone["zone_id"]
+            name = zone.get("name", f"Zone {z_id}")
+            coords = tuple(zone.get("coords", [0, 0]))
+            is_safe = zone.get("is_safe_haven", False)
+            self.g.add_node(f"ZONE_{z_id}", type="ZONE", zone_id=z_id, name=name, coords=coords, is_safe_haven=is_safe)
+            
+        # Connect new adjacencies
+        for z1, z2 in config_data.get("adjacencies", []):
+            self.g.add_edge(f"ZONE_{z1}", f"ZONE_{z2}", relation="adjacent_to")
+            self.g.add_edge(f"ZONE_{z2}", f"ZONE_{z1}", relation="adjacent_to")
+            
+        # Restore equipment nodes and their edges
+        for node, attrs in old_nodes:
+            if attrs.get("type") == "EQUIPMENT":
+                z_id = attrs.get("zone_id")
+                # Only add if the zone still exists
+                if self.g.has_node(f"ZONE_{z_id}"):
+                    self.g.add_node(node, **attrs)
+                    self.g.add_edge(f"ZONE_{z_id}", node, relation="contains")
+            elif attrs.get("type") == "SENSOR":
+                z_id = attrs.get("zone_id")
+                if self.g.has_node(f"ZONE_{z_id}"):
+                    self.g.add_node(node, **attrs)
+                    # Reconnect monitored_by edge to linked equipment if the equipment exists
+                    linked_eq = attrs.get("linked_equipment")
+                    if linked_eq and self.g.has_node(linked_eq):
+                        self.g.add_edge(linked_eq, node, relation="monitored_by")
+            elif attrs.get("type") == "PERMIT" and attrs.get("status") == "ACTIVE":
+                z_id = attrs.get("zone_id")
+                if self.g.has_node(f"ZONE_{z_id}"):
+                    self.g.add_node(node, **attrs)
+                    self.g.add_edge(node, f"ZONE_{z_id}", relation="applies_to")
+                    
+        # Re-add equipment-to-equipment adjacency edges within the same zone if both nodes still exist
+        for u, v, attrs in old_edges:
+            if self.g.has_node(u) and self.g.has_node(v):
+                if u.startswith("EQ_") and v.startswith("EQ_"):
+                    self.g.add_edge(u, v, **attrs)
+
+    def find_safe_evacuation_path(self, start_zone_id: int, target_zone_id: int, zone_risk_metrics: dict, plume_zones: list[int]) -> list[int]:
+        """
+        Finds the safest, shortest evacuation path from start_zone_id to target_zone_id.
+        Applies a weight multiplier ("risk slashing") to penalize zones with hazards
+        or active permits, and blocks plume zones by assigning infinite weight.
+        """
+        import math
+        
+        # 1. Create a copy of the zone-to-zone subgraph
+        zone_nodes = [n for n, d in self.g.nodes(data=True) if d.get("type") == "ZONE"]
+        temp_g = nx.DiGraph()
+        
+        # Add nodes with coords
+        for z_node in zone_nodes:
+            attrs = self.g.nodes[z_node]
+            temp_g.add_node(z_node, **attrs)
+            
+        # Add adjacency edges
+        for u, v, data in self.g.edges(data=True):
+            if u in temp_g and v in temp_g and data.get("relation") == "adjacent_to":
+                temp_g.add_edge(u, v, **data)
+                
+        # 2. Compute edge costs based on spatial distance and risk penalties
+        for u, v in temp_g.edges():
+            u_attrs = temp_g.nodes[u]
+            v_attrs = temp_g.nodes[v]
+            
+            u_id = u_attrs["zone_id"]
+            v_id = v_attrs["zone_id"]
+            
+            # Base Euclidean distance
+            u_coords = u_attrs.get("coords", (0, 0))
+            v_coords = v_attrs.get("coords", (0, 0))
+            base_dist = math.hypot(u_coords[0] - v_coords[0], u_coords[1] - v_coords[1])
+            if base_dist < 1.0:
+                base_dist = 1.0
+                
+            # Compute risk penalties (slashing)
+            # We penalize entering hazardous zones (v)
+            penalty = 0.0
+            
+            # Risk score penalty
+            v_risk = zone_risk_metrics.get(v_id, 0.0)
+            if v_risk >= 70.0:
+                # Critical risk zone: make it impassable (use massive weight)
+                penalty += 1e9
+            else:
+                # Linear penalty: scale weight by risk score
+                penalty += v_risk * 100.0
+                
+            # Plume penalty: completely blocked
+            if v_id in plume_zones:
+                penalty += 1e9
+                
+            # Permit anomaly penalties: penalize hot work / confined space entry zones
+            # Find active permits in zone
+            active_permits = []
+            for node, attrs in self.g.nodes(data=True):
+                if attrs.get("type") == "PERMIT" and attrs.get("zone_id") == v_id and attrs.get("status") == "ACTIVE":
+                    active_permits.append(attrs.get("permit_type"))
+                    
+            if "HotWork" in active_permits:
+                penalty += 500.0
+            if "ConfinedSpace" in active_permits:
+                penalty += 300.0
+                
+            cost = base_dist * (1.0 + penalty)
+            temp_g[u][v]["cost"] = cost
+            
+        # 3. Calculate path
+        start_node = f"ZONE_{start_zone_id}"
+        target_node = f"ZONE_{target_zone_id}"
+        
+        try:
+            path_nodes = nx.shortest_path(temp_g, source=start_node, target=target_node, weight="cost")
+            
+            # Extract path cost to check if it's passable
+            path_cost = sum(temp_g[path_nodes[i]][path_nodes[i+1]]["cost"] for i in range(len(path_nodes)-1))
+            
+            # If path cost implies crossing a blocked zone (1e9 or more), raise NoPath to trigger fallback
+            if path_cost >= 1e9:
+                raise nx.NetworkXNoPath("Path crosses impassable hazard plume or critical zone")
+                
+            return [temp_g.nodes[node]["zone_id"] for node in path_nodes]
+            
+        except (nx.NetworkXNoPath, nx.NodeNotFound):
+            # Fallback: if completely blocked, find path with lower infinity threshold,
+            # or try a topological path ignoring plume
+            try:
+                # Lower the penalty threshold to find the "least hazardous" path
+                for u, v in temp_g.edges():
+                    cost = temp_g[u][v]["cost"]
+                    if cost >= 1e9:
+                        # Convert absolute block to high penalty
+                        temp_g[u][v]["cost"] = cost / 1e5
+                path_nodes = nx.shortest_path(temp_g, source=start_node, target=target_node, weight="cost")
+                return [temp_g.nodes[node]["zone_id"] for node in path_nodes]
+            except Exception:
+                # Absolute fallback: return direct path if possible, or start and target
+                return [start_zone_id, target_zone_id]

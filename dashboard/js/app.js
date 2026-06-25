@@ -134,6 +134,12 @@ class AegisApp {
             case 'zone_update':
                 this.zoneState[msg.zone_id] = msg;
                 this.mapManager.setZoneRisk(msg.zone_id, msg.risk_score);
+                if (msg.evac_path !== undefined) {
+                    this.mapManager.setEvacPath(msg.zone_id, msg.evac_path);
+                }
+                if (msg.blocked_zones !== undefined) {
+                    this.mapManager.setBlockedZones(msg.blocked_zones);
+                }
                 this.renderZoneTable();
                 break;
 
@@ -424,7 +430,8 @@ class AegisApp {
         else if (t === 90) {
             this.handleUpdate({
                 type: 'zone_update', zone_id: 2, risk_score: 68.5,
-                active_permits: ['HotWork'], worker_count: 3, fatigue_level: 'normal'
+                active_permits: ['HotWork'], worker_count: 3, fatigue_level: 'normal',
+                evac_path: [2, 1, 4], blocked_zones: [2]
             });
             this.handleUpdate({
                 type: 'alert',
@@ -457,21 +464,24 @@ class AegisApp {
             });
             this.handleUpdate({
                 type: 'zone_update', zone_id: 1, risk_score: 46.2,
-                active_permits: [], worker_count: 0, fatigue_level: 'normal'
+                active_permits: [], worker_count: 0, fatigue_level: 'normal',
+                evac_path: [2, 5, 4], blocked_zones: [2, 1]
             });
             log('Plume expanding — Zone B now in warning');
         }
         else if (t === 150) {
             this.handleUpdate({
                 type: 'zone_update', zone_id: 2, risk_score: 79.4,
-                active_permits: ['HotWork'], worker_count: 3, fatigue_level: 'high'
+                active_permits: ['HotWork'], worker_count: 3, fatigue_level: 'high',
+                evac_path: [2, 5, 4], blocked_zones: [2, 1]
             });
             log('Operator fatigue critical — Alex Mercer');
         }
         else if (t === 180) {
             this.handleUpdate({
                 type: 'zone_update', zone_id: 2, risk_score: 92.5,
-                active_permits: ['HotWork'], worker_count: 3, fatigue_level: 'high'
+                active_permits: ['HotWork'], worker_count: 3, fatigue_level: 'high',
+                evac_path: [2, 5, 4], blocked_zones: [2, 1]
             });
             this.handleUpdate({
                 type: 'alert',
