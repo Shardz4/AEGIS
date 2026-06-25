@@ -86,8 +86,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Keep track of latest computed plume details for display
     let mut active_plumes: Vec<(u8, f64)> = Vec::new();
 
+    let mut active_wind_speed = 3.2;
+    let mut active_wind_direction = 225.0;
+
     let start_time = Instant::now();
-    let duration = Duration::from_secs(60);
+    let duration = Duration::from_secs(600);
     let tick_duration = Duration::from_millis(100); // 10Hz
 
     let mut last_dashboard_print = Instant::now();
@@ -107,6 +110,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // 2. Process events through TTI Engine
         for mut event in raw_events {
+            if event.zone == 255 {
+                // Capture wind parameters
+                if event.signal_id == 900 {
+                    active_wind_speed = event.value;
+                } else if event.signal_id == 901 {
+                    active_wind_direction = event.value;
+                }
+                // Push directly to ring buffer so Python can read it
+                if let Err(e) = rb.try_push(&event) {
+                    eprintln!("Ring buffer full, wind event dropped: {:?}", e);
+                }
+                continue;
+            }
+
             // Find corresponding sensor to get threshold and type
             let sensor = &sim.sensors[event.signal_id as usize];
             let threshold = sensor.threshold_critical;
@@ -120,7 +137,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
 
             // Serialize TtiResult into MsgPack bytes for the meta field
-            let meta_bytes = rmp_serde::to_vec(&tti_result)?;
+            let meta_bytes = rmp_serde::to_vec_named(&tti_result)?;
             event.meta = meta_bytes;
 
             // Save for dashboard rendering
@@ -160,8 +177,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         source_x,
                         source_y,
                         emission_rate_kg_s: emission_rate,
-                        wind_speed_m_s: 3.0,       // 3 m/s
-                        wind_direction_deg: 270.0, // blows to East (from West)
+                        wind_speed_m_s: active_wind_speed,
+                        wind_direction_deg: active_wind_direction,
                         stability_class: 'D',      // stability D (neutral)
                         gas_name: "H2S".to_string(),
                         threshold_ppm: 50.0,       // IDLH for H2S
@@ -178,7 +195,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
 
                     // Serialize PlumeResult into MsgPack bytes
-                    let plume_meta = rmp_serde::to_vec(&plume_res)?;
+                    let plume_meta = rmp_serde::to_vec_named(&plume_res)?;
 
                     // Create PLUME event (src = 4)
                     let plume_event = SensorEvent {

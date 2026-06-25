@@ -62,6 +62,10 @@ class BatchProcessor:
         # Fatigue monitor initialization
         self.fatigue_monitor = FatigueMonitor()
 
+        # Wind state tracking
+        self.current_wind_speed = 3.2
+        self.current_wind_direction = 225.0
+
         # Telemetry updates buffer for dashboard HTTP POST bridge
         self.pending_updates = []
 
@@ -76,6 +80,20 @@ class BatchProcessor:
             meta = event.get("meta")
 
             if zone_id is None:
+                continue
+
+            if zone_id == 255:
+                if signal_id == 900:
+                    self.current_wind_speed = val
+                elif signal_id == 901:
+                    self.current_wind_direction = val
+                
+                # Queue wind update for dashboard
+                self.pending_updates.append({
+                    "type": "wind_update",
+                    "wind_speed": self.current_wind_speed,
+                    "wind_direction": self.current_wind_direction
+                })
                 continue
 
             # Ensure tracking dicts exist for this zone

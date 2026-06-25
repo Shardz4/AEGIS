@@ -28,6 +28,24 @@ class PermitStore:
         # 3. LineBreak in Zone 3
         self.issue_permit("LineBreak", zone_id=3, duration_hours=8.0, worker_count=4)
 
+    def add_permit(self, permit_id: str, zone_id: int, permit_type: str, duration_hours: float, worker_count: int):
+        now = time.time()
+        expiry_time = now + duration_hours * 3600.0
+        permit = Permit(
+            permit_id=permit_id,
+            permit_type=permit_type,
+            zone_id=zone_id,
+            duration_hours=duration_hours,
+            worker_count=worker_count,
+            issued_at=now,
+            expiry_time=expiry_time
+        )
+        self.active_permits[permit_id] = permit
+        if self.equipment_graph:
+            self.equipment_graph.activate_permit(
+                permit_id, zone_id, permit_type, duration_hours, worker_count
+            )
+
     def issue_permit(self, permit_type: str, zone_id: int, duration_hours: float, worker_count: int) -> str:
         permit_id = f"PM-{self._next_id:04d}"
         self._next_id += 1

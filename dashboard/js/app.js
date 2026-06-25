@@ -171,6 +171,11 @@ class AegisApp {
             case 'fatigue_update':
                 break;
 
+            case 'wind_update':
+                this.mapManager.setWind(msg.wind_direction, msg.wind_speed);
+                this.updateWindDisplay(msg.wind_direction, msg.wind_speed);
+                break;
+
             case 'start_demo':
                 if (!this.demoActive) this.startDemo();
                 break;

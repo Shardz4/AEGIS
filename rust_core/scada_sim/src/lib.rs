@@ -62,6 +62,8 @@ pub struct ScadaSimulator {
     pub sensors: Vec<Sensor>,
     pub config: SimConfig,
     pub tick_count: u64,
+    pub wind_speed_m_s: f64,
+    pub wind_direction_deg: f64,
     lcg: Lcg,
 }
 
@@ -141,6 +143,8 @@ impl ScadaSimulator {
             sensors,
             config,
             tick_count: 0,
+            wind_speed_m_s: 3.2,
+            wind_direction_deg: 225.0,
             lcg,
         };
 
@@ -257,6 +261,34 @@ impl ScadaSimulator {
                 meta: vec![], // to be filled/enriched by the TTI engine later
             });
         }
+
+        // Drifting wind parameters using the main LCG
+        let wind_speed_noise = self.lcg.next_gaussian() * 0.05;
+        self.wind_speed_m_s = (self.wind_speed_m_s + wind_speed_noise).clamp(0.5, 15.0);
+
+        let wind_dir_noise = self.lcg.next_gaussian() * 1.5;
+        self.wind_direction_deg = (self.wind_direction_deg + wind_dir_noise + 360.0) % 360.0;
+
+        // Push special events for wind (zone = 255)
+        // Wind Speed (ID 900)
+        events.push(SensorEvent {
+            ts: now,
+            src: 0,
+            zone: 255,
+            signal_id: 900,
+            value: self.wind_speed_m_s,
+            meta: vec![],
+        });
+
+        // Wind Direction (ID 901)
+        events.push(SensorEvent {
+            ts: now,
+            src: 0,
+            zone: 255,
+            signal_id: 901,
+            value: self.wind_direction_deg,
+            meta: vec![],
+        });
 
         events
     }
