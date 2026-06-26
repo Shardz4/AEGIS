@@ -68,6 +68,11 @@ class AegisApp {
 
         // Bind
         this.demoBtn.addEventListener('click', () => this.toggleDemo());
+        this.alertContainer.addEventListener('click', (e) => this.handleMitigationClick(e));
+
+        // State for closed-loop mitigations
+        this.mitigatedZones = new Set();
+        this.cancelledPermits = new Set();
 
         // Init
         this.startClock();
@@ -132,6 +137,35 @@ class AegisApp {
 
     /* --- Data dispatch --- */
     handleUpdate(msg) {
+        // Apply local overrides in Demo Mode
+        if (this.demoActive) {
+            if (msg.type === 'zone_update' && msg.zone_id === 2) {
+                if (this.cancelledPermits.has('PTW-8022')) {
+                    msg.active_permits = (msg.active_permits || []).filter(p => p !== 'HotWork');
+                    msg.risk_score = Math.max(8.5, msg.risk_score - 25.0);
+                    msg.worker_count = Math.max(0, msg.worker_count - 2);
+                }
+                if (this.mitigatedZones.has(2)) {
+                    msg.active_permits = [];
+                    msg.risk_score = 8.5;
+                    msg.worker_count = 0;
+                    msg.evac_path = null;
+                    msg.blocked_zones = (msg.blocked_zones || []).filter(z => z !== 2);
+                }
+            } else if (msg.type === 'sensor_update' && msg.zone_id === 2) {
+                if (this.mitigatedZones.has(2)) {
+                    msg.value = (msg.signal_id === 15) ? 5.0 : 2.4;
+                    msg.tti_seconds = null;
+                    msg.urgency = 'normal';
+                }
+            } else if (msg.type === 'plume_update' && msg.zone_id === 2) {
+                if (this.mitigatedZones.has(2)) {
+                    msg.hazard_radius_m = 0;
+                    msg.leak_rate_kgs = 0;
+                }
+            }
+        }
+
         switch (msg.type) {
             case 'zone_update':
                 this.zoneState[msg.zone_id] = msg;
@@ -181,6 +215,10 @@ class AegisApp {
 
             case 'start_demo':
                 if (!this.demoActive) this.startDemo();
+                break;
+
+            case 'mitigated':
+                this.applyMitigationState(msg);
                 break;
         }
     }
@@ -305,6 +343,8 @@ class AegisApp {
     startDemo() {
         this.demoActive = true;
         this.demoTime = 0;
+        this.mitigatedZones.clear();
+        this.cancelledPermits.clear();
         this.demoBtn.textContent = 'STOP DEMO';
         this.demoBtn.className = 'btn-demo active';
         this.connText.textContent = 'DEMO MODE';
@@ -325,6 +365,8 @@ class AegisApp {
     stopDemo() {
         this.demoActive = false;
         clearInterval(this.demoTimer);
+        this.mitigatedZones.clear();
+        this.cancelledPermits.clear();
         this.demoBtn.textContent = 'RUN DEMO';
         this.demoBtn.className = 'btn-demo';
         this.leadTimeContainer.classList.add('hidden');
@@ -447,6 +489,7 @@ class AegisApp {
                 timestamp: Date.now() / 1000,
                 zone_id: 2,
                 risk_score: 68.5,
+                active_permits: ['PTW-8022'],
                 situation: 'Combustible gas concentration (LEL) rising in Zone C Reactor Area. Conflicting Hot Work permit active, creating ignition risk.',
                 actions: [
                     'Suspend all hot work operations in Zone C Reactor Area immediately.',
@@ -497,6 +540,7 @@ class AegisApp {
                 timestamp: Date.now() / 1000,
                 zone_id: 2,
                 risk_score: 92.5,
+                active_permits: ['PTW-8022'],
                 situation: 'Critical gas LEL breach (78% LEL) in Zone C Reactor Area. Active hot work and extreme operator fatigue. Gas plume dispersing towards Zone B Compressor Hall.',
                 actions: [
                     'Evacuate all personnel from Zone C and Zone B immediately.',
@@ -525,6 +569,103 @@ class AegisApp {
             });
             log('Evacuation order dispatched');
             clearInterval(this.demoTimer);
+        }
+    }
+
+    handleMitigationClick(e) {
+        const btn = e.target.closest('.btn-mitigate');
+        if (!btn || btn.disabled) return;
+
+        const permitId = btn.dataset.permitId;
+        const zoneIdStr = btn.dataset.zoneId;
+
+        if (permitId) {
+            // Cancel permit
+            if (this.demoActive) {
+                this.cancelledPermits.add(permitId);
+                // Disable all cancel buttons for this permit
+                document.querySelectorAll(`.btn-cancel-permit[data-permit-id="${permitId}"]`).forEach(b => {
+                    b.disabled = true;
+                    b.textContent = `Permit ${permitId} Cancelled`;
+                });
+                log(`Demo Mode: Cancelled permit ${permitId}`);
+                this.applyDemoMitigationEffects();
+            } else {
+                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                    this.ws.send(JSON.stringify({
+                        type: 'mitigate',
+                        action: 'cancel_permit',
+                        permit_id: permitId
+                    }));
+                }
+            }
+        } else if (zoneIdStr !== undefined) {
+            // Isolate feed
+            const zoneId = parseInt(zoneIdStr, 10);
+            if (this.demoActive) {
+                this.mitigatedZones.add(zoneId);
+                // Disable all isolate buttons for this zone
+                document.querySelectorAll(`.btn-isolate-feed[data-zone-id="${zoneId}"]`).forEach(b => {
+                    b.disabled = true;
+                    b.textContent = `Zone isolated`;
+                });
+                log(`Demo Mode: Isolated Zone ${zoneId}`);
+                this.applyDemoMitigationEffects();
+            } else {
+                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                    this.ws.send(JSON.stringify({
+                        type: 'mitigate',
+                        action: 'isolate_feed',
+                        zone_id: zoneId
+                    }));
+                }
+            }
+        }
+    }
+
+    applyMitigationState(msg) {
+        if (msg.action === 'cancel_permit') {
+            const pId = msg.permit_id;
+            this.cancelledPermits.add(pId);
+            document.querySelectorAll(`.btn-cancel-permit[data-permit-id="${pId}"]`).forEach(b => {
+                b.disabled = true;
+                b.textContent = `Permit ${pId} Cancelled`;
+            });
+            log(`Live Mode: Permit ${pId} Cancelled`);
+        } else if (msg.action === 'isolate_feed') {
+            const zId = parseInt(msg.zone_id, 10);
+            this.mitigatedZones.add(zId);
+            document.querySelectorAll(`.btn-isolate-feed[data-zone-id="${zId}"]`).forEach(b => {
+                b.disabled = true;
+                b.textContent = `Zone isolated`;
+            });
+            log(`Live Mode: Zone ${zId} Isolated`);
+        }
+    }
+
+    applyDemoMitigationEffects() {
+        // Re-send current values through handleUpdate so the overrides get applied immediately
+        const currentZoneState = this.zoneState[2];
+        if (currentZoneState) {
+            this.handleUpdate({
+                type: 'zone_update',
+                ...currentZoneState
+            });
+        }
+        // Force update the plume to 0 if isolated
+        if (this.mitigatedZones.has(2)) {
+            this.handleUpdate({
+                type: 'plume_update', zone_id: 2,
+                hazard_radius_m: 0, gas_name: 'Methane', leak_rate_kgs: 0
+            });
+            this.handleUpdate({
+                type: 'sensor_update', signal_id: 15, zone_id: 2,
+                value: 5.0, tti_seconds: null, urgency: 'normal'
+            });
+            this.handleUpdate({
+                type: 'sensor_update', signal_id: 6, zone_id: 2,
+                value: 2.4, tti_seconds: null, urgency: 'normal'
+            });
         }
     }
 }

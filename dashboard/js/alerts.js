@@ -6,6 +6,18 @@
  */
 import { formatTimestamp } from './utils.js';
 
+const ZONE_NAMES = {
+    0: "Tank Farm",
+    1: "Compressor Hall",
+    2: "Reactor Area",
+    3: "Pipe Rack",
+    4: "Control Room",
+    5: "Loading Bay",
+    6: "Utilities",
+    7: "Flare Stack"
+};
+const ZONE_CHARS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+
 export class AlertFeedManager {
     constructor(containerEl, countEl) {
         this.container = containerEl;
@@ -82,6 +94,28 @@ export class AlertFeedManager {
             `;
         }
 
+        // Build mitigation HTML
+        let mitigationHtml = '';
+        if (data.zone_id !== undefined) {
+            const zoneChar = ZONE_CHARS[data.zone_id] || String(data.zone_id);
+            const zoneName = ZONE_NAMES[data.zone_id] || `Zone ${zoneChar}`;
+            
+            let permitButtons = '';
+            if (data.active_permits && data.active_permits.length) {
+                permitButtons = data.active_permits.map(pId => `
+                    <button class="btn-mitigate btn-cancel-permit" data-permit-id="${pId}">Cancel Permit ${pId}</button>
+                `).join('');
+            }
+            
+            mitigationHtml = `
+                <div class="alert-mitigation">
+                    <div class="alert-section-label">Mitigation controls</div>
+                    ${permitButtons}
+                    <button class="btn-mitigate btn-isolate-feed" data-zone-id="${data.zone_id}">Isolate ${zoneName} Feed</button>
+                </div>
+            `;
+        }
+
         const entry = document.createElement('div');
         entry.className = `alert-entry ${severityClass} ${blinkClass} data-enter`;
         entry.id = `alert-${data.alert_id}`;
@@ -91,7 +125,7 @@ export class AlertFeedManager {
                 <span class="alert-severity ${severityTextClass}">${severityLabel}</span>
                 <span class="alert-meta">${data.alert_id}</span>
             </div>
-            <div class="alert-title">Zone ${data.zone_id} Incident Risk</div>
+            <div class="alert-title">Zone ${ZONE_CHARS[data.zone_id] || data.zone_id} Incident Risk</div>
             <div class="alert-risk-line">
                 ${formatTimestamp(data.timestamp)} &mdash;
                 Risk <span class="risk-val ${severityTextClass}">${data.risk_score.toFixed(1)}%</span>
@@ -105,6 +139,7 @@ export class AlertFeedManager {
             ${actionsHtml}
             ${citationsHtml}
             ${abstentionHtml}
+            ${mitigationHtml}
         `;
 
         this.container.insertBefore(entry, this.container.firstChild);
