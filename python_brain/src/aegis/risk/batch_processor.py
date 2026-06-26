@@ -340,6 +340,7 @@ class BatchProcessor:
                             "timestamp": operator_alert.timestamp,
                             "zone_id": operator_alert.zone_id,
                             "risk_score": operator_alert.risk_score,
+                            "active_permits": [p.permit_id for p in self.permit_store.get_active_for_zone(operator_alert.zone_id)],
                             "situation": operator_alert.situation,
                             "actions": operator_alert.actions,
                             "regulatory_citations": [
@@ -422,6 +423,25 @@ class BatchProcessor:
                 self.process_events()
             except Exception as e:
                 print(f"Error processing ring buffer events: {e}")
+
+            # Check for control overrides (permit cancellations)
+            try:
+                import os
+                import json
+                if os.path.exists("control_override.json"):
+                    with open("control_override.json", "r", encoding="utf-8") as f:
+                        content = f.read().strip()
+                        if content:
+                            override_data = json.loads(content)
+                            cancelled = override_data.get("cancelled_permits", [])
+                            for p_id in cancelled:
+                                if p_id in self.permit_store.active_permits:
+                                    permit = self.permit_store.active_permits[p_id]
+                                    if permit.status == "ACTIVE":
+                                        print(f"Applying control override: Revoking permit {p_id}")
+                                        self.permit_store.revoke_permit(p_id)
+            except Exception as e:
+                print(f"Error reading control overrides: {e}")
 
             now = time.time()
 

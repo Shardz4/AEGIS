@@ -28,9 +28,73 @@ async def ws_handler(request):
                     # If client requests a demo scenario, broadcast the trigger
                     if data.get("type") == "start_demo":
                         logger.info("Demo scenario start request received. Broadcasting to all clients.")
+                        current_dir = os.path.dirname(os.path.abspath(__file__))
+                        workspace_dir = os.path.dirname(current_dir)
+                        override_path = os.path.join(workspace_dir, "control_override.json")
+                        if os.path.exists(override_path):
+                            try:
+                                os.remove(override_path)
+                                logger.info(f"Cleaned up {override_path} on demo start")
+                            except Exception as ex:
+                                logger.error(f"Error removing {override_path}: {ex}")
+                        
                         for client in list(websockets):
                             if not client.closed:
                                 await client.send_json(data)
+                                
+                    elif data.get("type") == "mitigate":
+                        action = data.get("action")
+                        current_dir = os.path.dirname(os.path.abspath(__file__))
+                        workspace_dir = os.path.dirname(current_dir)
+                        override_path = os.path.join(workspace_dir, "control_override.json")
+                        
+                        # Load existing overrides
+                        overrides = {"isolated_zones": [], "cancelled_permits": []}
+                        if os.path.exists(override_path):
+                            try:
+                                with open(override_path, "r", encoding="utf-8") as f:
+                                    content = f.read().strip()
+                                    if content:
+                                        overrides = json.loads(content)
+                            except Exception as ex:
+                                logger.error(f"Error reading {override_path}: {ex}")
+                                
+                        # Update overrides based on action
+                        updated = False
+                        if action == "cancel_permit":
+                            p_id = data.get("permit_id")
+                            if p_id and p_id not in overrides.setdefault("cancelled_permits", []):
+                                overrides["cancelled_permits"].append(p_id)
+                                updated = True
+                        elif action == "isolate_feed":
+                            z_id = data.get("zone_id")
+                            if z_id is not None:
+                                try:
+                                    z_id = int(z_id)
+                                    if z_id not in overrides.setdefault("isolated_zones", []):
+                                        overrides["isolated_zones"].append(z_id)
+                                        updated = True
+                                except ValueError:
+                                    pass
+                                    
+                        if updated:
+                            try:
+                                with open(override_path, "w", encoding="utf-8") as f:
+                                    json.dump(overrides, f, indent=2)
+                                logger.info(f"Updated control overrides: {overrides}")
+                            except Exception as ex:
+                                logger.error(f"Error writing {override_path}: {ex}")
+                                
+                        # Broadcast mitigated event
+                        response_data = {
+                            "type": "mitigated",
+                            "action": action,
+                            "permit_id": data.get("permit_id"),
+                            "zone_id": data.get("zone_id")
+                        }
+                        for client in list(websockets):
+                            if not client.closed:
+                                await client.send_json(response_data)
                 except Exception as ex:
                     logger.error(f"Error parsing ws message: {ex}")
             elif msg.type == web.WSMsgType.ERROR:

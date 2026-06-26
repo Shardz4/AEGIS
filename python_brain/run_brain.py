@@ -31,7 +31,7 @@ def main():
         # Initialize engine modules
         engine = RiskEngine()
         graph = EquipmentGraph()
-        permit_store = PermitStore()
+        permit_store = PermitStore(graph)
         
         # Populate active permits in permit store to match the demo baseline
         # In the demo scenario:

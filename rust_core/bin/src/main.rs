@@ -1,5 +1,5 @@
 use ring_buffer::RingBuffer;
-use scada_sim::{ScadaSimulator, SimConfig, SensorType};
+use scada_sim::{ScadaSimulator, SimConfig, SensorType, Scenario};
 use tti_engine::{TtiEngine, TtiResult, Urgency};
 use plume_sim::{PlumeEngine, PlumeParams, ZoneBoundary};
 use ring_buffer::SensorEvent;
@@ -52,6 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = std::env::var("AEGIS_RING_PATH").unwrap_or_else(|_| "aegis_ring.bin".to_string());
     println!("Starting AEGIS Pipeline Daemon");
     println!("Ring buffer: {}", path);
+    let _ = std::fs::remove_file("control_override.json");
 
     // Initialize shared-memory ring buffer (64MB)
     let mut rb = RingBuffer::new(&path, 64 * 1024 * 1024, false)?;
@@ -101,6 +102,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     while start_time.elapsed() < duration {
         let tick_start = Instant::now();
+
+        // Every 10 ticks (1 second), check for control overrides
+        if ticks % 10 == 0 {
+            if let Ok(content) = std::fs::read_to_string("control_override.json") {
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(isolated_zones) = val.get("isolated_zones").and_then(|z| z.as_array()) {
+                        for zone_val in isolated_zones {
+                            if let Some(zone_id) = zone_val.as_u64() {
+                                let zone_id = zone_id as u8;
+                                for sensor in &mut sim.sensors {
+                                    if sensor.zone == zone_id && sensor.scenario != Scenario::Normal {
+                                        println!("Closed-loop: Process isolation command received. Resetting Zone {} sensor #{} to Normal.", zone_id, sensor.id);
+                                        sensor.scenario = Scenario::Normal;
+                                        sensor.ticks_in_scenario = 0;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // 1. Tick SCADA Simulator
         let raw_events = sim.tick();
