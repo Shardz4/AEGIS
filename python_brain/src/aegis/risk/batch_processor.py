@@ -1,5 +1,6 @@
 import time
 import msgpack
+import numpy as np
 from aegis.ipc.reader import RingBufferReader
 from aegis.graph.equipment_graph import EquipmentGraph
 from aegis.permits.permit_store import PermitStore
@@ -51,6 +52,11 @@ class BatchProcessor:
         self.latest_tti: dict[int, dict] = {}       # zone_id -> {sensor_type: (tti_seconds, slope, urgency_str)}
         self.latest_plumes: dict[int, dict] = {}    # zone_id -> plume_res_dict
         self.alert_queue: list[RiskAssessment] = []
+        
+        # Malfunction detection states
+        self.zone_sensor_values: dict[int, dict[int, float]] = {}  # zone_id -> {sensor_id: val}
+        self.sensor_tti: dict[int, tuple] = {}                     # sensor_id -> (tti, slope, urgency)
+        self.malfunctioning_sensors: set[int] = set()
 
         # RAG and Narrator initialization
         self.corpus = get_mock_corpus()
@@ -72,6 +78,8 @@ class BatchProcessor:
     def process_events(self):
         """Reads a batch of events from the ring buffer and updates local state."""
         batch = self.ring_reader.read_batch()
+        
+        # 1. Update state from the batch events
         for event in batch:
             src = event.get("src")
             zone_id = event.get("zone")
@@ -102,12 +110,14 @@ class BatchProcessor:
             if zone_id not in self.latest_tti:
                 self.latest_tti[zone_id] = {}
 
-            if src == 0:  # SCADA telemetry with TTI annotation
-                # Get sensor info from equipment graph to resolve type
+            if src == 0:  # SCADA telemetry
                 s_node = f"SENSOR_{signal_id}"
                 if s_node in self.equipment_graph.g.nodes:
                     s_type = self.equipment_graph.g.nodes[s_node]["sensor_type"]
-                    self.latest_signals[zone_id][s_type] = val
+                    
+                    if zone_id not in self.zone_sensor_values:
+                        self.zone_sensor_values[zone_id] = {}
+                    self.zone_sensor_values[zone_id][signal_id] = val
 
                     # Unpack TTI metadata
                     tti_secs = None
@@ -115,27 +125,16 @@ class BatchProcessor:
                     if meta:
                         try:
                             tti_res = msgpack.unpackb(meta, raw=False)
-                            # tti_res = {tti_seconds, slope, r_squared, urgency, ...}
                             tti_secs = tti_res.get("tti_seconds")
                             slope = tti_res.get("slope", 0.0)
                             urgency_code = tti_res.get("urgency", 0)
-                            
                             urgency_map = {0: "normal", 1: "watch", 2: "warning", 3: "critical"}
                             urgency_str = urgency_map.get(urgency_code, "normal")
                             
+                            self.sensor_tti[signal_id] = (tti_secs, slope, urgency_str)
                             self.latest_tti[zone_id][s_type] = (tti_secs, slope, urgency_str)
                         except Exception as e:
                             print(f"Error decoding TTI metadata for sensor {signal_id}: {e}")
-                    
-                    # Queue sensor update for dashboard
-                    self.pending_updates.append({
-                        "type": "sensor_update",
-                        "signal_id": signal_id,
-                        "zone_id": zone_id,
-                        "value": val,
-                        "tti_seconds": tti_secs,
-                        "urgency": urgency_str
-                    })
 
             elif src == 4:  # PLUME consequence event
                 if meta:
@@ -154,8 +153,115 @@ class BatchProcessor:
                     except Exception as e:
                         print(f"Error decoding Plume metadata in zone {zone_id}: {e}")
 
+        # 2. Detect malfunctioning sensors
+        self.detect_malfunctions()
+
+        # 3. Queue sensor updates with malfunctioning status
+        for event in batch:
+            src = event.get("src")
+            zone_id = event.get("zone")
+            signal_id = event.get("signal_id")
+            val = event.get("value")
+
+            if zone_id is None or zone_id == 255:
+                continue
+
+            if src == 0:
+                tti_secs = None
+                urgency_str = "normal"
+                if signal_id in self.sensor_tti:
+                    tti_secs, _, urgency_str = self.sensor_tti[signal_id]
+
+                self.pending_updates.append({
+                    "type": "sensor_update",
+                    "signal_id": signal_id,
+                    "zone_id": zone_id,
+                    "value": val,
+                    "tti_seconds": tti_secs,
+                    "urgency": urgency_str,
+                    "malfunctioning": signal_id in self.malfunctioning_sensors
+                })
+
+    def detect_malfunctions(self):
+        """Perform spatial outlier detection and voting across all zones."""
+        BASELINES = {
+            "GasConcentration": 5.0,
+            "Temperature": 25.0,
+            "Pressure": 1.5,
+            "FlowRate": 100.0,
+            "Vibration": 2.0,
+            "PH": 7.0,
+            "Level": 50.0,
+            "Humidity": 45.0
+        }
+
+        self.malfunctioning_sensors = set()
+
+        for zone_id, sensors_dict in self.zone_sensor_values.items():
+            if not sensors_dict or len(sensors_dict) < 3:
+                continue
+            
+            # Resolve sensor type from first sensor in zone
+            first_s_id = next(iter(sensors_dict.keys()))
+            first_s_node = f"SENSOR_{first_s_id}"
+            if first_s_node not in self.equipment_graph.g.nodes:
+                continue
+            s_type = self.equipment_graph.g.nodes[first_s_node]["sensor_type"]
+            baseline = BASELINES.get(s_type, 1.0)
+            dev_floor = 0.1 * baseline
+
+            # Median / MAD
+            vals = list(sensors_dict.values())
+            median_val = np.median(vals)
+            abs_deviations = [abs(v - median_val) for v in vals]
+            mad = np.median(abs_deviations)
+
+            outliers = []
+            for s_id, v in sensors_dict.items():
+                dev = abs(v - median_val)
+                if dev > max(3.5 * mad, dev_floor):
+                    outliers.append(s_id)
+
+            # Spatial Voting: only classify as malfunction if 2 or fewer sensors deviate
+            if len(outliers) <= 2:
+                self.malfunctioning_sensors.update(outliers)
+
     def evaluate_risk(self) -> list[RiskAssessment]:
         """Compute the Bayesian Risk Assessment for all 8 zones."""
+        BASELINES = {
+            "GasConcentration": 5.0,
+            "Temperature": 25.0,
+            "Pressure": 1.5,
+            "FlowRate": 100.0,
+            "Vibration": 2.0,
+            "PH": 7.0,
+            "Level": 50.0,
+            "Humidity": 45.0
+        }
+
+        # Update representative signals for risk calculation
+        for zone_id in range(8):
+            sensors_dict = self.zone_sensor_values.get(zone_id, {})
+            s_type = None
+            if sensors_dict:
+                for s_id in sensors_dict:
+                    s_node = f"SENSOR_{s_id}"
+                    if s_node in self.equipment_graph.g.nodes:
+                        s_type = self.equipment_graph.g.nodes[s_node]["sensor_type"]
+                        break
+
+            if s_type:
+                active_vals = [v for s_id, v in sensors_dict.items() if s_id not in self.malfunctioning_sensors]
+                if active_vals:
+                    rep_val = np.median(active_vals)
+                else:
+                    all_vals = list(sensors_dict.values())
+                    rep_val = np.median(all_vals) if all_vals else BASELINES.get(s_type, 1.0)
+                
+                if zone_id not in self.latest_signals:
+                    self.latest_signals[zone_id] = {}
+                self.latest_signals[zone_id][s_type] = rep_val
+
         assessments = []
         now = time.time()
 
@@ -178,16 +284,20 @@ class BatchProcessor:
             if "Pressure" in zone_signals:
                 evidence["Pressure"] = map_press_level(zone_signals["Pressure"])
 
-            # TTI Urgency
-            zone_ttis = self.latest_tti.get(zone_id, {})
+            # TTI Urgency (ignoring malfunctioning sensors)
             max_urgency = "normal"
             max_tti_val = None
-            
             urgency_levels = {"normal": 0, "watch": 1, "warning": 2, "critical": 3}
-            for s_type, (tti_secs, _, urg_str) in zone_ttis.items():
-                if urgency_levels.get(urg_str, 0) > urgency_levels.get(max_urgency, 0):
-                    max_urgency = urg_str
-                    max_tti_val = tti_secs
+            
+            sensors_dict = self.zone_sensor_values.get(zone_id, {})
+            for s_id in sensors_dict.keys():
+                if s_id in self.malfunctioning_sensors:
+                    continue
+                if s_id in self.sensor_tti:
+                    tti_secs, _, urg_str = self.sensor_tti[s_id]
+                    if urgency_levels.get(urg_str, 0) > urgency_levels.get(max_urgency, 0):
+                        max_urgency = urg_str
+                        max_tti_val = tti_secs
 
             evidence["TTI_Urgency"] = max_urgency
             evidence["_tti_seconds"] = max_tti_val
@@ -382,6 +492,12 @@ class BatchProcessor:
                         print("=" * 80 + "\n")
                     except Exception as e:
                         print(f"Error executing LLM Alert Narrator for Zone {zone_id}: {e}")
+
+        # Queue malfunctions update
+        self.pending_updates.append({
+            "type": "malfunctions_update",
+            "malfunctioning_sensors": list(self.malfunctioning_sensors)
+        })
 
         # Flush all queued updates to dashboard
         if self.pending_updates:

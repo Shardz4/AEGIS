@@ -56,6 +56,7 @@ class AegisApp {
         this.demoTime = 0;
         this.demoTimer = null;
         this.lastFrame = performance.now();
+        this.malfunctioningSensors = new Set();
 
         // Zone state cache (for table rendering)
         this.zoneState = {};
@@ -189,11 +190,22 @@ class AegisApp {
                 const spec = specs[msg.signal_id] || { label: `SEN-${msg.signal_id}`, unit: '', threshold: 100 };
                 this.chartsManager.updateSensor(msg.signal_id, msg.value, {
                     ...spec, zone_id: msg.zone_id,
-                    tti_seconds: msg.tti_seconds, urgency: msg.urgency
+                    tti_seconds: msg.tti_seconds, urgency: msg.urgency,
+                    malfunctioning: msg.malfunctioning || this.malfunctioningSensors.has(msg.signal_id)
                 });
                 this.chartsManager.render(this.sparklineContainer);
                 break;
             }
+
+            case 'malfunctions_update':
+                this.malfunctioningSensors = new Set(msg.malfunctioning_sensors || []);
+                for (const signalId of Object.keys(this.chartsManager.sensorMeta)) {
+                    const id = parseInt(signalId);
+                    this.chartsManager.sensorMeta[id].malfunctioning = this.malfunctioningSensors.has(id);
+                }
+                this.renderZoneTable();
+                this.chartsManager.render(this.sparklineContainer);
+                break;
 
             case 'plume_update':
                 this.mapManager.setPlume(msg.zone_id, msg.hazard_radius_m);
@@ -283,11 +295,22 @@ class AegisApp {
             const detailEl = document.getElementById(`zone-detail-${i}`);
             if (detailEl) {
                 const fatigueClass = fatigue === 'high' ? 'high' : '';
+                const zoneFaults = Array.from(this.malfunctioningSensors).filter(id => (id % 8) === i);
+                let faultHtml = '';
+                if (zoneFaults.length > 0) {
+                    faultHtml = `
+                        <div class="detail-item">
+                            <span class="detail-label">faults</span>
+                            <span class="detail-val fault">${zoneFaults.length} SEN</span>
+                        </div>
+                    `;
+                }
                 detailEl.innerHTML = `
                     <div class="detail-item">
                         <span class="detail-label">fatigue</span>
                         <span class="detail-val ${fatigueClass}">${fatigue.toUpperCase()}</span>
                     </div>
+                    ${faultHtml}
                 `;
             }
         }
@@ -345,6 +368,7 @@ class AegisApp {
         this.demoTime = 0;
         this.mitigatedZones.clear();
         this.cancelledPermits.clear();
+        this.malfunctioningSensors.clear();
         this.demoBtn.textContent = 'STOP DEMO';
         this.demoBtn.className = 'btn-demo active';
         this.connText.textContent = 'DEMO MODE';
@@ -367,6 +391,7 @@ class AegisApp {
         clearInterval(this.demoTimer);
         this.mitigatedZones.clear();
         this.cancelledPermits.clear();
+        this.malfunctioningSensors.clear();
         this.demoBtn.textContent = 'RUN DEMO';
         this.demoBtn.className = 'btn-demo';
         this.leadTimeContainer.classList.add('hidden');
@@ -455,6 +480,30 @@ class AegisApp {
             });
             log('Gas trend detected in Zone C Reactor Area');
         }
+        else if (t === 20) {
+            this.handleUpdate({
+                type: 'malfunctions_update',
+                malfunctioning_sensors: [18]
+            });
+            this.handleUpdate({
+                type: 'sensor_update',
+                signal_id: 18,
+                zone_id: 2,
+                value: 95.0,
+                tti_seconds: 30,
+                urgency: 'critical',
+                malfunctioning: true
+            });
+            this.handleUpdate({
+                type: 'zone_update',
+                zone_id: 2,
+                risk_score: 8.5,
+                active_permits: [],
+                worker_count: 1,
+                fatigue_level: 'normal'
+            });
+            log('Simulated sensor malfunction injected on SEN-18 (Zone C)');
+        }
         else if (t === 30) {
             this.handleUpdate({
                 type: 'zone_update', zone_id: 2, risk_score: 54.2,
@@ -478,6 +527,19 @@ class AegisApp {
             log('Plume modeling active — Zone C Methane');
         }
         else if (t === 90) {
+            this.handleUpdate({
+                type: 'malfunctions_update',
+                malfunctioning_sensors: []
+            });
+            this.handleUpdate({
+                type: 'sensor_update',
+                signal_id: 18,
+                zone_id: 2,
+                value: 2.4,
+                tti_seconds: null,
+                urgency: 'normal',
+                malfunctioning: false
+            });
             this.handleUpdate({
                 type: 'zone_update', zone_id: 2, risk_score: 68.5,
                 active_permits: ['HotWork'], worker_count: 3, fatigue_level: 'normal',

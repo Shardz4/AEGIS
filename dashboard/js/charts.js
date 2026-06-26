@@ -23,7 +23,8 @@ export class SparklineManager {
             threshold: metadata.threshold || 100,
             zone_id: metadata.zone_id,
             tti_seconds: metadata.tti_seconds,
-            urgency: metadata.urgency || 'normal'
+            urgency: metadata.urgency || 'normal',
+            malfunctioning: metadata.malfunctioning || false
         };
     }
 
@@ -50,14 +51,22 @@ export class SparklineManager {
         container.innerHTML = '';
         top.forEach(s => {
             const el = document.createElement('div');
-            const stateClass = s.urgency === 'critical' ? 'state-critical' :
-                               s.urgency === 'warning' ? 'state-warning' : '';
+            let stateClass = s.urgency === 'critical' ? 'state-critical' :
+                             s.urgency === 'warning' ? 'state-warning' : '';
+            if (s.malfunctioning) {
+                stateClass = 'state-malfunctioning';
+            }
             el.className = `sparkline-widget ${stateClass} data-enter`;
 
-            const val = `${s.history[s.history.length - 1].toFixed(1)}${s.unit}`;
-            const tti = s.tti_seconds !== null && s.tti_seconds < 1800
+            let val = `${s.history[s.history.length - 1].toFixed(1)}${s.unit}`;
+            let tti = s.tti_seconds !== null && s.tti_seconds < 1800
                 ? `TTI ${formatTTI(s.tti_seconds)}`
                 : 'TTI ---';
+
+            if (s.malfunctioning) {
+                val = '[FAULT]';
+                tti = 'FAULTY SENSOR';
+            }
 
             el.innerHTML = `
                 <div class="sparkline-info">
@@ -73,12 +82,12 @@ export class SparklineManager {
 
             setTimeout(() => {
                 const c = document.getElementById(`spark-${s.id}`);
-                if (c) this._drawSpark(c, s.history, s.threshold, s.urgency);
+                if (c) this._drawSpark(c, s.history, s.threshold, s.urgency, s.malfunctioning);
             }, 0);
         });
     }
 
-    _drawSpark(canvas, history, threshold, urgency) {
+    _drawSpark(canvas, history, threshold, urgency, malfunctioning) {
         const dpr = window.devicePixelRatio || 1;
         const rect = canvas.getBoundingClientRect();
         canvas.width = rect.width * dpr;
@@ -113,20 +122,30 @@ export class SparklineManager {
             ctx.lineTo(gx(i), gy(history[i]));
         }
 
-        const color = urgency === 'critical' ? '#884444' :
-                      urgency === 'warning'  ? '#886830' : '#555555';
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 1;
+        if (malfunctioning) {
+            ctx.strokeStyle = '#888888';
+            ctx.lineWidth = 0.5;
+            ctx.setLineDash([2, 2]);
+        } else {
+            const color = urgency === 'critical' ? '#884444' :
+                          urgency === 'warning'  ? '#886830' : '#555555';
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1;
+            ctx.setLineDash([]);
+        }
         ctx.stroke();
+        ctx.setLineDash([]); // clear dash for subsequent drawings
 
         // Area fill
-        ctx.lineTo(w, h);
-        ctx.lineTo(0, h);
-        ctx.closePath();
-        const fill = urgency === 'critical' ? 'rgba(160, 50, 50, 0.06)' :
-                     urgency === 'warning'  ? 'rgba(140, 110, 40, 0.04)' :
-                                              'rgba(100, 100, 100, 0.03)';
-        ctx.fillStyle = fill;
-        ctx.fill();
+        if (!malfunctioning) {
+            ctx.lineTo(w, h);
+            ctx.lineTo(0, h);
+            ctx.closePath();
+            const fill = urgency === 'critical' ? 'rgba(160, 50, 50, 0.06)' :
+                         urgency === 'warning'  ? 'rgba(140, 110, 40, 0.04)' :
+                                                  'rgba(100, 100, 100, 0.03)';
+            ctx.fillStyle = fill;
+            ctx.fill();
+        }
     }
 }

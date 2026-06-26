@@ -236,6 +236,11 @@
     color: var(--state-warning);
 }
 
+.zone-detail .detail-val.fault {
+    color: var(--state-warning);
+    font-weight: 600;
+}
+
 
 /* ===========================================================
    MAP OVERLAY — Plume data readout
@@ -559,6 +564,21 @@
     display: block;
     width: 100%;
     height: 100%;
+}
+
+.sparkline-widget.state-malfunctioning {
+    border-style: dashed;
+    border-color: var(--rule-strong);
+}
+
+.sparkline-widget.state-malfunctioning .sparkline-value {
+    color: var(--text-3);
+    text-decoration: line-through;
+}
+
+.sparkline-widget.state-malfunctioning .sparkline-label,
+.sparkline-widget.state-malfunctioning .sparkline-tti {
+    color: var(--text-3);
 }
 
 /* --- Mitigation Controls --- */
