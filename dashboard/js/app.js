@@ -74,6 +74,8 @@ class AegisApp {
         // State for closed-loop mitigations
         this.mitigatedZones = new Set();
         this.cancelledPermits = new Set();
+        this.recalibratedSensors = new Set();
+        this.calibrationSettleTimer = null;
 
         // Init
         this.startClock();
@@ -191,7 +193,8 @@ class AegisApp {
                 this.chartsManager.updateSensor(msg.signal_id, msg.value, {
                     ...spec, zone_id: msg.zone_id,
                     tti_seconds: msg.tti_seconds, urgency: msg.urgency,
-                    malfunctioning: msg.malfunctioning || this.malfunctioningSensors.has(msg.signal_id)
+                    malfunctioning: msg.malfunctioning || this.malfunctioningSensors.has(msg.signal_id),
+                    calibration_state: msg.calibration_state || 'NOMINAL'
                 });
                 this.chartsManager.render(this.sparklineContainer);
                 break;
@@ -369,6 +372,11 @@ class AegisApp {
         this.mitigatedZones.clear();
         this.cancelledPermits.clear();
         this.malfunctioningSensors.clear();
+        this.recalibratedSensors.clear();
+        if (this.calibrationSettleTimer) {
+            clearTimeout(this.calibrationSettleTimer);
+            this.calibrationSettleTimer = null;
+        }
         this.demoBtn.textContent = 'STOP DEMO';
         this.demoBtn.className = 'btn-demo active';
         this.connText.textContent = 'DEMO MODE';
@@ -392,6 +400,11 @@ class AegisApp {
         this.mitigatedZones.clear();
         this.cancelledPermits.clear();
         this.malfunctioningSensors.clear();
+        this.recalibratedSensors.clear();
+        if (this.calibrationSettleTimer) {
+            clearTimeout(this.calibrationSettleTimer);
+            this.calibrationSettleTimer = null;
+        }
         this.demoBtn.textContent = 'RUN DEMO';
         this.demoBtn.className = 'btn-demo';
         this.leadTimeContainer.classList.add('hidden');
@@ -426,12 +439,41 @@ class AegisApp {
         // Sensor trends
         let gasVal = 5.0;
         let pressVal = 2.4;
+        let tempVal = 25.0;
 
         if (t >= 10) {
             gasVal = 5.0 + Math.min(1, (t - 10) / 110) * 73.0;
         }
         if (t >= 40) {
             pressVal = 2.4 + Math.min(1, (t - 40) / 140) * 4.4;
+        }
+
+        let tempCalibration = 'NOMINAL';
+        if (this.recalibratedSensors.has(5)) {
+            tempCalibration = 'NOMINAL';
+        } else if (t >= 30) {
+            if (t >= 70) {
+                tempCalibration = 'DRIFTING';
+            }
+            
+            // If SEN-5 is recalibrating, settle it
+            if (this.chartsManager.sensorMeta[5]?.calibration_state === 'CALIBRATING') {
+                tempCalibration = 'CALIBRATING';
+                tempVal = 25.0;
+                if (!this.calibrationSettleTimer) {
+                    this.calibrationSettleTimer = setTimeout(() => {
+                        this.recalibratedSensors.add(5);
+                        this.handleUpdate({
+                            type: 'sensor_update', signal_id: 5, zone_id: 2,
+                            value: 25.0, tti_seconds: null, urgency: 'normal',
+                            calibration_state: 'NOMINAL'
+                        });
+                        this.calibrationSettleTimer = null;
+                    }, 2000);
+                }
+            } else {
+                tempVal = 25.0 + (t - 30) * 1.5;
+            }
         }
 
         // Gas sensor
@@ -448,6 +490,15 @@ class AegisApp {
         this.handleUpdate({
             type: 'sensor_update', signal_id: 6, zone_id: 2,
             value: pressVal, tti_seconds: pressTTI, urgency: pressUrg
+        });
+
+        // Temperature sensor
+        const tempTTI = tempCalibration === 'DRIFTING' ? 240 : null;
+        const tempUrg = tempCalibration === 'DRIFTING' ? 'warning' : 'normal';
+        this.handleUpdate({
+            type: 'sensor_update', signal_id: 5, zone_id: 2,
+            value: tempVal, tti_seconds: tempTTI, urgency: tempUrg,
+            calibration_state: tempCalibration
         });
 
         // Lead time display
@@ -517,6 +568,29 @@ class AegisApp {
                 { operator_id: 'OP_005', name: 'Sarah Connor', role: 'Control Room', current_zone: 4 }
             ]);
             log('Hot work permit conflict in Zone C');
+        }
+        else if (t === 70) {
+            if (!this.recalibratedSensors.has(5)) {
+                this.handleUpdate({
+                    type: 'alert',
+                    alert_id: 'AL-CUSUM-05',
+                    timestamp: Date.now() / 1000,
+                    zone_id: 2,
+                    risk_score: 18.5,
+                    active_permits: [],
+                    situation: 'CUSUM drift threshold breached on Reactor Temperature sensor (SEN-5). Slow upward signal drift detected, indicating loss of sensor calibration.',
+                    actions: [
+                        'Initiate field calibration query for SEN-5.',
+                        'Compare readings with local dial thermometer TI-205.'
+                    ],
+                    regulatory_citations: [],
+                    urgency: 'Low: Slow CUSUM drift detected. Recalibration required.',
+                    abstention_notes: [],
+                    is_drift_alert: true,
+                    sensor_id: 5
+                });
+                log('CUSUM drift warning generated for SEN-5');
+            }
         }
         else if (t === 60) {
             this.mapManager.setPlume(2, 15.0);
@@ -640,6 +714,7 @@ class AegisApp {
 
         const permitId = btn.dataset.permitId;
         const zoneIdStr = btn.dataset.zoneId;
+        const sensorIdStr = btn.dataset.sensorId;
 
         if (permitId) {
             // Cancel permit
@@ -682,6 +757,36 @@ class AegisApp {
                     }));
                 }
             }
+        } else if (sensorIdStr !== undefined) {
+            // Recalibrate sensor
+            const sensorId = parseInt(sensorIdStr, 10);
+            if (this.demoActive) {
+                this.recalibratedSensors.add(sensorId);
+                document.querySelectorAll(`.btn-recalibrate[data-sensor-id="${sensorId}"]`).forEach(b => {
+                    b.disabled = true;
+                    b.textContent = `Sensor recalibrating`;
+                });
+                log(`Demo Mode: Recalibrating sensor ${sensorId}`);
+                
+                // Directly remove the drift warning alert card
+                const card = document.getElementById('alert-AL-CUSUM-05');
+                if (card) card.remove();
+                
+                this.chartsManager.updateSensor(sensorId, 25.0, {
+                    calibration_state: 'CALIBRATING',
+                    zone_id: 2,
+                    urgency: 'normal'
+                });
+                this.chartsManager.render(this.sparklineContainer);
+            } else {
+                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                    this.ws.send(JSON.stringify({
+                        type: 'mitigate',
+                        action: 'recalibrate',
+                        sensor_id: sensorId
+                    }));
+                }
+            }
         }
     }
 
@@ -702,6 +807,18 @@ class AegisApp {
                 b.textContent = `Zone isolated`;
             });
             log(`Live Mode: Zone ${zId} Isolated`);
+        } else if (msg.action === 'recalibrate') {
+            const sId = parseInt(msg.sensor_id, 10);
+            this.recalibratedSensors.add(sId);
+            document.querySelectorAll(`.btn-recalibrate[data-sensor-id="${sId}"]`).forEach(b => {
+                b.disabled = true;
+                b.textContent = `Sensor recalibrating`;
+            });
+            log(`Live Mode: Recalibrated Sensor ${sId}`);
+            
+            // Remove the drift warning alert card if present
+            const card = document.getElementById('alert-AL-CUSUM-05');
+            if (card) card.remove();
         }
     }
 
