@@ -21,6 +21,7 @@ pub enum Scenario {
     FastSpike,
     Oscillating,
     FlatHigh,
+    Drifting,
 }
 
 #[derive(Debug, Clone)]
@@ -37,6 +38,7 @@ pub struct Sensor {
     pub baseline: f64,
     pub ticks_in_scenario: u64,
     pub seed_state: u64, // local seed state for noise
+    pub drift: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -136,6 +138,7 @@ impl ScadaSimulator {
                 baseline,
                 ticks_in_scenario: 0,
                 seed_state: lcg.next_u64(),
+                drift: 0.0,
             });
         }
 
@@ -190,6 +193,7 @@ impl ScadaSimulator {
         if let Some(sensor) = self.sensors.iter_mut().find(|s| s.id == sensor_id && s.zone == zone) {
             sensor.scenario = scenario;
             sensor.ticks_in_scenario = 0;
+            sensor.drift = 0.0;
             if scenario == Scenario::FlatHigh {
                 let warning = sensor.threshold_warning;
                 let critical = sensor.threshold_critical;
@@ -219,7 +223,7 @@ impl ScadaSimulator {
                 Scenario::Normal => {
                     // Slight drift around baseline plus noise
                     let drift = (sensor.ticks_in_scenario as f64 * 0.01).sin() * 0.1;
-                    sensor.current_value = sensor.baseline + drift + noise;
+                    sensor.current_value = sensor.baseline + drift + sensor.drift + noise;
                     // Clamp to make sure we don't naturally breach
                     sensor.current_value = sensor.current_value.clamp(0.0, sensor.threshold_warning - 5.0);
                 }
@@ -248,6 +252,14 @@ impl ScadaSimulator {
                     let target = sensor.threshold_critical * 0.90;
                     // Slight walk around target
                     sensor.current_value = target + noise;
+                }
+                Scenario::Drifting => {
+                    // Slowly drift upwards: 0.00015 of critical threshold per tick
+                    let drift_rate = sensor.threshold_critical * 0.00015;
+                    sensor.drift += drift_rate;
+                    sensor.current_value = sensor.baseline + sensor.drift + noise;
+                    // Allow it to drift past warning and critical
+                    sensor.current_value = sensor.current_value.clamp(0.0, sensor.threshold_critical + 10.0);
                 }
             }
 

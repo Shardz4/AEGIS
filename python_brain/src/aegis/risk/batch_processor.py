@@ -58,6 +58,11 @@ class BatchProcessor:
         self.sensor_tti: dict[int, tuple] = {}                     # sensor_id -> (tti, slope, urgency)
         self.malfunctioning_sensors: set[int] = set()
 
+        # Sensor drift / calibration states
+        self.cusum_high: dict[int, float] = {}
+        self.cusum_low: dict[int, float] = {}
+        self.sensor_calibration_state: dict[int, str] = {}
+
         # RAG and Narrator initialization
         self.corpus = get_mock_corpus()
         self.retriever = RegulatoryRetriever(self.corpus)
@@ -156,7 +161,10 @@ class BatchProcessor:
         # 2. Detect malfunctioning sensors
         self.detect_malfunctions()
 
-        # 3. Queue sensor updates with malfunctioning status
+        # 3. Detect sensor drift
+        self.detect_sensor_drift()
+
+        # 4. Queue sensor updates with malfunctioning and calibration status
         for event in batch:
             src = event.get("src")
             zone_id = event.get("zone")
@@ -179,7 +187,8 @@ class BatchProcessor:
                     "value": val,
                     "tti_seconds": tti_secs,
                     "urgency": urgency_str,
-                    "malfunctioning": signal_id in self.malfunctioning_sensors
+                    "malfunctioning": signal_id in self.malfunctioning_sensors,
+                    "calibration_state": self.sensor_calibration_state.get(signal_id, 'NOMINAL')
                 })
 
     def detect_malfunctions(self):
@@ -225,6 +234,76 @@ class BatchProcessor:
             # Spatial Voting: only classify as malfunction if 2 or fewer sensors deviate
             if len(outliers) <= 2:
                 self.malfunctioning_sensors.update(outliers)
+
+    def detect_sensor_drift(self):
+        """Perform CUSUM drift detection across all active sensors."""
+        BASELINES = {
+            "GasConcentration": 5.0,
+            "Temperature": 25.0,
+            "Pressure": 1.5,
+            "FlowRate": 100.0,
+            "Vibration": 2.0,
+            "PH": 7.0,
+            "Level": 50.0,
+            "Humidity": 45.0
+        }
+
+        # Noise standard deviations per sensor type
+        STD_DEVS = {
+            "GasConcentration": 0.5,
+            "Temperature": 1.0,
+            "Pressure": 0.1,
+            "FlowRate": 2.0,
+            "Vibration": 0.1,
+            "PH": 0.2,
+            "Level": 1.0,
+            "Humidity": 1.0
+        }
+
+        for zone_id, sensors_dict in self.zone_sensor_values.items():
+            for s_id, val in sensors_dict.items():
+                if s_id in self.malfunctioning_sensors:
+                    continue
+
+                s_node = f"SENSOR_{s_id}"
+                if s_node not in self.equipment_graph.g.nodes:
+                    continue
+                s_type = self.equipment_graph.g.nodes[s_node]["sensor_type"]
+                baseline = BASELINES.get(s_type, 1.0)
+                std_dev = STD_DEVS.get(s_type, 1.0)
+
+                # Initialize CUSUM statistics if not present
+                if s_id not in self.cusum_high:
+                    self.cusum_high[s_id] = 0.0
+                if s_id not in self.cusum_low:
+                    self.cusum_low[s_id] = 0.0
+
+                # CUSUM parameters: K = 0.5 * std_dev, H = 4.0 * std_dev
+                K = 0.5 * std_dev
+                H = 4.0 * std_dev
+
+                # Update CUSUM accumulators
+                self.cusum_high[s_id] = max(0.0, self.cusum_high[s_id] + val - (baseline + K))
+                self.cusum_low[s_id] = max(0.0, self.cusum_low[s_id] + (baseline - K) - val)
+
+                # Trigger drifting status if threshold breached
+                if self.cusum_high[s_id] > H or self.cusum_low[s_id] > H:
+                    if self.sensor_calibration_state.get(s_id) != 'CALIBRATING':
+                        self.sensor_calibration_state[s_id] = 'DRIFTING'
+                else:
+                    if self.sensor_calibration_state.get(s_id) == 'DRIFTING':
+                        self.sensor_calibration_state[s_id] = 'NOMINAL'
+
+                # Transition CALIBRATING -> NOMINAL when value returns close to baseline
+                if self.sensor_calibration_state.get(s_id) == 'CALIBRATING':
+                    if abs(val - baseline) <= 2.0 * std_dev:
+                        self.sensor_calibration_state[s_id] = 'NOMINAL'
+
+    def recalibrate_sensor(self, s_id: int):
+        """Trigger calibration for a sensor, resetting CUSUM stats."""
+        self.cusum_high[s_id] = 0.0
+        self.cusum_low[s_id] = 0.0
+        self.sensor_calibration_state[s_id] = 'CALIBRATING'
 
     def evaluate_risk(self) -> list[RiskAssessment]:
         """Compute the Bayesian Risk Assessment for all 8 zones."""
@@ -540,7 +619,7 @@ class BatchProcessor:
             except Exception as e:
                 print(f"Error processing ring buffer events: {e}")
 
-            # Check for control overrides (permit cancellations)
+            # Check for control overrides (permit cancellations and sensor recalibrations)
             try:
                 import os
                 import json
@@ -549,6 +628,8 @@ class BatchProcessor:
                         content = f.read().strip()
                         if content:
                             override_data = json.loads(content)
+                            
+                            # 1. Permit cancellations
                             cancelled = override_data.get("cancelled_permits", [])
                             for p_id in cancelled:
                                 if p_id in self.permit_store.active_permits:
@@ -556,6 +637,17 @@ class BatchProcessor:
                                     if permit.status == "ACTIVE":
                                         print(f"Applying control override: Revoking permit {p_id}")
                                         self.permit_store.revoke_permit(p_id)
+                                        
+                            # 2. Sensor recalibrations
+                            recalibrated = override_data.get("recalibrated_sensors", [])
+                            for s_id in recalibrated:
+                                try:
+                                    s_id = int(s_id)
+                                    if self.sensor_calibration_state.get(s_id) not in ('CALIBRATING', 'NOMINAL'):
+                                        print(f"Applying control override: Recalibrating sensor {s_id}")
+                                        self.recalibrate_sensor(s_id)
+                                except ValueError:
+                                    pass
             except Exception as e:
                 print(f"Error reading control overrides: {e}")
 
