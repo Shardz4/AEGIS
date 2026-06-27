@@ -25,44 +25,41 @@ def test_cusum_drift_detection():
     permit_store = PermitStore(graph)
     engine = RiskEngine()
     
-    # We will test Sensor 5 (Reactor Temp) in Zone 2
-    # Sensor 5 is a Temperature type sensor
-    # Nominal Temperature baseline = 25.0, std_dev = 1.0
-    # K = 0.5 * std_dev = 0.5, H = 4.0 * std_dev = 4.0
-    sensor_id = 5
+    # We will test Sensor 10 (Pressure) in Zone 2
+    # Sensor 10 is in Zone 2, type Pressure (10 % 8 = 2)
+    # Nominal Pressure baseline = 1.5, std_dev = 0.1
+    # K = 0.5 * std_dev = 0.05, H = 4.0 * std_dev = 0.4
+    sensor_id = 10
     zone_id = 2
     
-    # Feed 10 ticks of nominal data (25.0)
-    nominal_events = []
+    # Initialize BatchProcessor with empty events
+    reader = MockRingReader([])
+    processor = BatchProcessor(reader, engine, graph, permit_store)
+    
+    # Feed 10 ticks of nominal data (1.5) one by one
     for _ in range(10):
-        nominal_events.append({
+        processor.ring_reader.events = [{
             "src": 0,
             "zone": zone_id,
             "signal_id": sensor_id,
-            "value": 25.0
-        })
+            "value": 1.5
+        }]
+        processor.process_events()
         
-    reader = MockRingReader(nominal_events)
-    processor = BatchProcessor(reader, engine, graph, permit_store)
-    
-    processor.process_events()
     assert processor.sensor_calibration_state.get(sensor_id, 'NOMINAL') == 'NOMINAL'
     assert processor.cusum_high.get(sensor_id, 0.0) == 0.0
     
-    # Now feed ticks of drifting values: 27.0
-    # For each tick, high CUSUM = max(0, prev + 27.0 - (25.0 + 0.5)) = max(0, prev + 1.5)
-    # After 3 ticks, CUSUM should exceed H = 4.0 (1.5 * 3 = 4.5 > 4.0)
-    drift_events = []
+    # Now feed ticks of drifting values: 1.7 one by one
+    # For each tick, high CUSUM = max(0, prev + 1.7 - (1.5 + 0.05)) = max(0, prev + 0.15)
+    # After 3 ticks, CUSUM should exceed H = 0.4 (0.15 * 3 = 0.45 > 0.4)
     for _ in range(5):
-        drift_events.append({
+        processor.ring_reader.events = [{
             "src": 0,
             "zone": zone_id,
             "signal_id": sensor_id,
-            "value": 27.0
-        })
-        
-    processor.ring_reader.events = drift_events
-    processor.process_events()
+            "value": 1.7
+        }]
+        processor.process_events()
     
     # Verify drift state is triggered
     assert processor.sensor_calibration_state.get(sensor_id) == 'DRIFTING'
@@ -72,12 +69,12 @@ def test_cusum_drift_detection():
     assert processor.sensor_calibration_state.get(sensor_id) == 'CALIBRATING'
     assert processor.cusum_high.get(sensor_id) == 0.0
     
-    # Feed one nominal tick (25.0)
+    # Feed one nominal tick (1.5)
     processor.ring_reader.events = [{
         "src": 0,
         "zone": zone_id,
         "signal_id": sensor_id,
-        "value": 25.0
+        "value": 1.5
     }]
     processor.process_events()
     
