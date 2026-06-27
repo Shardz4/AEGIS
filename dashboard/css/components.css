@@ -581,6 +581,15 @@
     color: var(--text-3);
 }
 
+.sparkline-widget.state-drifting {
+    border-style: dotted;
+    border-color: var(--state-warning);
+}
+
+.sparkline-widget.state-drifting .sparkline-tti {
+    color: var(--state-warning);
+}
+
 /* --- Mitigation Controls --- */
 .alert-mitigation {
     margin-top: 12px;

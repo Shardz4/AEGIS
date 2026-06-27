@@ -107,6 +107,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if ticks % 10 == 0 {
             if let Ok(content) = std::fs::read_to_string("control_override.json") {
                 if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                    // 1. Process isolation command
                     if let Some(isolated_zones) = val.get("isolated_zones").and_then(|z| z.as_array()) {
                         for zone_val in isolated_zones {
                             if let Some(zone_id) = zone_val.as_u64() {
@@ -116,7 +117,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         println!("Closed-loop: Process isolation command received. Resetting Zone {} sensor #{} to Normal.", zone_id, sensor.id);
                                         sensor.scenario = Scenario::Normal;
                                         sensor.ticks_in_scenario = 0;
+                                        sensor.drift = 0.0;
                                     }
+                                }
+                            }
+                        }
+                    }
+
+                    // 2. Sensor recalibration command
+                    if let Some(recalibrated) = val.get("recalibrated_sensors").and_then(|r| r.as_array()) {
+                        for sensor_val in recalibrated {
+                            if let Some(sensor_id) = sensor_val.as_u64() {
+                                let sensor_id = sensor_id as u16;
+                                if let Some(sensor) = sim.sensors.iter_mut().find(|s| s.id == sensor_id) {
+                                    println!("Closed-loop: Recalibration command received. Resetting sensor #{} drift.", sensor_id);
+                                    sensor.drift = 0.0;
+                                    sensor.scenario = Scenario::Normal;
+                                    sensor.ticks_in_scenario = 0;
                                 }
                             }
                         }

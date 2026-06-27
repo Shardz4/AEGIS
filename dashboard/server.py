@@ -76,6 +76,16 @@ async def ws_handler(request):
                                         updated = True
                                 except ValueError:
                                     pass
+                        elif action == "recalibrate":
+                            s_id = data.get("sensor_id")
+                            if s_id is not None:
+                                try:
+                                    s_id = int(s_id)
+                                    if s_id not in overrides.setdefault("recalibrated_sensors", []):
+                                        overrides["recalibrated_sensors"].append(s_id)
+                                        updated = True
+                                except ValueError:
+                                    pass
                                     
                         if updated:
                             try:
@@ -90,7 +100,8 @@ async def ws_handler(request):
                             "type": "mitigated",
                             "action": action,
                             "permit_id": data.get("permit_id"),
-                            "zone_id": data.get("zone_id")
+                            "zone_id": data.get("zone_id"),
+                            "sensor_id": data.get("sensor_id")
                         }
                         for client in list(websockets):
                             if not client.closed:

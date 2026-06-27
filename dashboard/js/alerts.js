@@ -96,7 +96,14 @@ export class AlertFeedManager {
 
         // Build mitigation HTML
         let mitigationHtml = '';
-        if (data.zone_id !== undefined) {
+        if (data.is_drift_alert) {
+            mitigationHtml = `
+                <div class="alert-mitigation">
+                    <div class="alert-section-label">Mitigation controls</div>
+                    <button class="btn-mitigate btn-recalibrate" data-sensor-id="${data.sensor_id}">Recalibrate Sensor SEN-${data.sensor_id}</button>
+                </div>
+            `;
+        } else if (data.zone_id !== undefined) {
             const zoneChar = ZONE_CHARS[data.zone_id] || String(data.zone_id);
             const zoneName = ZONE_NAMES[data.zone_id] || `Zone ${zoneChar}`;
             

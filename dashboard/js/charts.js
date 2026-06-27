@@ -24,7 +24,8 @@ export class SparklineManager {
             zone_id: metadata.zone_id,
             tti_seconds: metadata.tti_seconds,
             urgency: metadata.urgency || 'normal',
-            malfunctioning: metadata.malfunctioning || false
+            malfunctioning: metadata.malfunctioning || false,
+            calibration_state: metadata.calibration_state || 'NOMINAL'
         };
     }
 
@@ -55,6 +56,8 @@ export class SparklineManager {
                              s.urgency === 'warning' ? 'state-warning' : '';
             if (s.malfunctioning) {
                 stateClass = 'state-malfunctioning';
+            } else if (s.calibration_state === 'DRIFTING' || s.calibration_state === 'CALIBRATING') {
+                stateClass = 'state-drifting';
             }
             el.className = `sparkline-widget ${stateClass} data-enter`;
 
@@ -66,6 +69,12 @@ export class SparklineManager {
             if (s.malfunctioning) {
                 val = '[FAULT]';
                 tti = 'FAULTY SENSOR';
+            } else if (s.calibration_state === 'DRIFTING') {
+                val = `${s.history[s.history.length - 1].toFixed(1)}${s.unit} [DRIFT]`;
+                tti = 'CUSUM BREACH';
+            } else if (s.calibration_state === 'CALIBRATING') {
+                val = '[CALIBRATING]';
+                tti = 'CALIBRATING...';
             }
 
             el.innerHTML = `
@@ -82,12 +91,12 @@ export class SparklineManager {
 
             setTimeout(() => {
                 const c = document.getElementById(`spark-${s.id}`);
-                if (c) this._drawSpark(c, s.history, s.threshold, s.urgency, s.malfunctioning);
+                if (c) this._drawSpark(c, s.history, s.threshold, s.urgency, s.malfunctioning, s.calibration_state);
             }, 0);
         });
     }
 
-    _drawSpark(canvas, history, threshold, urgency, malfunctioning) {
+    _drawSpark(canvas, history, threshold, urgency, malfunctioning, calibrationState) {
         const dpr = window.devicePixelRatio || 1;
         const rect = canvas.getBoundingClientRect();
         canvas.width = rect.width * dpr;
@@ -126,6 +135,10 @@ export class SparklineManager {
             ctx.strokeStyle = '#888888';
             ctx.lineWidth = 0.5;
             ctx.setLineDash([2, 2]);
+        } else if (calibrationState === 'DRIFTING' || calibrationState === 'CALIBRATING') {
+            ctx.strokeStyle = '#886830';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([1, 2]);
         } else {
             const color = urgency === 'critical' ? '#884444' :
                           urgency === 'warning'  ? '#886830' : '#555555';
@@ -141,9 +154,12 @@ export class SparklineManager {
             ctx.lineTo(w, h);
             ctx.lineTo(0, h);
             ctx.closePath();
-            const fill = urgency === 'critical' ? 'rgba(160, 50, 50, 0.06)' :
-                         urgency === 'warning'  ? 'rgba(140, 110, 40, 0.04)' :
-                                                  'rgba(100, 100, 100, 0.03)';
+            let fill = urgency === 'critical' ? 'rgba(160, 50, 50, 0.06)' :
+                       urgency === 'warning'  ? 'rgba(140, 110, 40, 0.04)' :
+                                                'rgba(100, 100, 100, 0.03)';
+            if (calibrationState === 'DRIFTING' || calibrationState === 'CALIBRATING') {
+                fill = 'rgba(140, 110, 40, 0.04)';
+            }
             ctx.fillStyle = fill;
             ctx.fill();
         }
