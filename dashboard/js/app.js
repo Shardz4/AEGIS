@@ -182,6 +182,49 @@ class AegisApp {
                 this.renderZoneTable();
                 break;
 
+            case 'cctv_update': {
+                const zoneChar = ZONE_IDS[msg.zone_id] || String(msg.zone_id);
+                const camId = msg.camera_id || `CAM-${zoneChar}-301`;
+                
+                // Update map
+                this.mapManager.setCameraWarning(camId, msg.active);
+                this.mapManager.draw();
+                
+                // Update monitor HUD widget
+                const camIdEl = document.getElementById('cctv-cam-id');
+                const camStatusEl = document.getElementById('cctv-cam-status');
+                const hudEl = document.getElementById('cctv-hud');
+                const bboxEl = document.getElementById('cctv-bbox');
+                
+                if (camIdEl) camIdEl.textContent = camId;
+                if (camStatusEl) {
+                    camStatusEl.textContent = msg.active ? 'VIOLATION DETECTED' : 'NOMINAL';
+                }
+                if (hudEl) {
+                    hudEl.className = msg.active ? 'cctv-hud state-breached' : 'cctv-hud';
+                }
+                if (bboxEl) {
+                    if (msg.active) {
+                        bboxEl.style.display = 'block';
+                        bboxEl.className = 'cctv-bbox state-breached';
+                        bboxEl.style.left = '30%';
+                        bboxEl.style.top = '25%';
+                        bboxEl.style.width = '40%';
+                        bboxEl.style.height = '50%';
+                        
+                        const labelEl = document.getElementById('cctv-bbox-label');
+                        if (labelEl) {
+                            labelEl.textContent = msg.signal_id === 1001 
+                                ? `PPE BREACH: ${msg.violator_role} (${(msg.confidence*100).toFixed(0)}%)` 
+                                : `VISUAL SMOKE (${(msg.confidence*100).toFixed(0)}%)`;
+                        }
+                    } else {
+                        bboxEl.style.display = 'none';
+                    }
+                }
+                break;
+            }
+
             case 'sensor_update': {
                 const specs = {
                     5:  { label: 'Reactor Temp',   unit: '°C',    threshold: 85 },
@@ -531,6 +574,19 @@ class AegisApp {
             });
             log('Gas trend detected in Zone C Reactor Area');
         }
+        else if (t === 15) {
+            this.handleUpdate({
+                type: 'cctv_update',
+                zone_id: 2,
+                signal_id: 1001,
+                value: 1.0,
+                active: true,
+                camera_id: 'CAM-C-301',
+                confidence: 0.94,
+                violator_role: 'Contractor'
+            });
+            log('CCTV PPE Breach event detected in Zone C');
+        }
         else if (t === 20) {
             this.handleUpdate({
                 type: 'malfunctions_update',
@@ -568,6 +624,19 @@ class AegisApp {
                 { operator_id: 'OP_005', name: 'Sarah Connor', role: 'Control Room', current_zone: 4 }
             ]);
             log('Hot work permit conflict in Zone C');
+        }
+        else if (t === 45) {
+            this.handleUpdate({
+                type: 'cctv_update',
+                zone_id: 2,
+                signal_id: 1002,
+                value: 1.0,
+                active: true,
+                camera_id: 'CAM-C-301',
+                confidence: 0.96,
+                violator_role: ''
+            });
+            log('CCTV Visual Smoke event detected in Zone C');
         }
         else if (t === 70) {
             if (!this.recalibratedSensors.has(5)) {
@@ -716,7 +785,43 @@ class AegisApp {
         const zoneIdStr = btn.dataset.zoneId;
         const sensorIdStr = btn.dataset.sensorId;
 
-        if (permitId) {
+        if (btn.classList.contains('btn-ack-cctv')) {
+            const zoneId = parseInt(zoneIdStr, 10);
+            const sensorId = parseInt(sensorIdStr, 10);
+            if (this.demoActive) {
+                document.querySelectorAll(`.btn-ack-cctv[data-zone-id="${zoneId}"][data-sensor-id="${sensorId}"]`).forEach(b => {
+                    b.disabled = true;
+                    b.textContent = `Acknowledged`;
+                });
+                
+                const zoneChar = ZONE_IDS[zoneId] || String(zoneId);
+                const alertCard = document.getElementById(`alert-AL-CCTV-${zoneChar}-${sensorId}`);
+                if (alertCard) alertCard.remove();
+                
+                // Reset camera warning
+                this.mapManager.setCameraWarning(`CAM-${zoneChar}-301`, false);
+                this.mapManager.draw();
+                
+                // Clear HUD
+                const hud = document.getElementById('cctv-hud');
+                const bbox = document.getElementById('cctv-bbox');
+                if (hud) hud.className = 'cctv-hud';
+                const camStatus = document.getElementById('cctv-cam-status');
+                if (camStatus) camStatus.textContent = 'NOMINAL';
+                if (bbox) bbox.style.display = 'none';
+                
+                log(`Demo Mode: Acknowledged CCTV Event in Zone ${zoneId}`);
+            } else {
+                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                    this.ws.send(JSON.stringify({
+                        type: 'mitigate',
+                        action: 'ack_cctv',
+                        zone_id: zoneId,
+                        sensor_id: sensorId
+                    }));
+                }
+            }
+        } else if (permitId) {
             // Cancel permit
             if (this.demoActive) {
                 this.cancelledPermits.add(permitId);
@@ -819,7 +924,30 @@ class AegisApp {
             // Remove the drift warning alert card if present
             const card = document.getElementById('alert-AL-CUSUM-05');
             if (card) card.remove();
+        } else if (msg.action === 'ack_cctv') {
+            const zId = parseInt(msg.zone_id, 10);
+            const sId = parseInt(msg.sensor_id, 10);
+            document.querySelectorAll(`.btn-ack-cctv[data-zone-id="${zId}"][data-sensor-id="${sId}"]`).forEach(b => {
+                b.disabled = true;
+                b.textContent = `Acknowledged`;
+            });
+            const zoneChar = ZONE_IDS[zId] || String(zId);
+            const card = document.getElementById(`alert-AL-CCTV-${zoneChar}-${sId}`);
+            if (card) card.remove();
+            
+            // Reset camera warning
+            this.mapManager.setCameraWarning(`CAM-${zoneChar}-301`, false);
+            this.mapManager.draw();
+            
+            // Reset HUD
+            const hud = document.getElementById('cctv-hud');
+            const bbox = document.getElementById('cctv-bbox');
+            if (hud) hud.className = 'cctv-hud';
+            const camStatus = document.getElementById('cctv-cam-status');
+            if (camStatus) camStatus.textContent = 'NOMINAL';
+            if (bbox) bbox.style.display = 'none';
         }
+    }
     }
 
     applyDemoMitigationEffects() {
