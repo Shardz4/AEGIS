@@ -103,6 +103,13 @@ export class AlertFeedManager {
                     <button class="btn-mitigate btn-recalibrate" data-sensor-id="${data.sensor_id}">Recalibrate Sensor SEN-${data.sensor_id}</button>
                 </div>
             `;
+        } else if (data.is_cctv_alert) {
+            mitigationHtml = `
+                <div class="alert-mitigation">
+                    <div class="alert-section-label">Mitigation controls</div>
+                    <button class="btn-mitigate btn-ack-cctv" data-zone-id="${data.zone_id}" data-sensor-id="${data.sensor_id}">Acknowledge & Clear Violation</button>
+                </div>
+            `;
         } else if (data.zone_id !== undefined) {
             const zoneChar = ZONE_CHARS[data.zone_id] || String(data.zone_id);
             const zoneName = ZONE_NAMES[data.zone_id] || `Zone ${zoneChar}`;

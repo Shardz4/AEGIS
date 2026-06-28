@@ -63,6 +63,9 @@ class BatchProcessor:
         self.cusum_low: dict[int, float] = {}
         self.sensor_calibration_state: dict[int, str] = {}
 
+        # CCTV Vision Analytics state
+        self.latest_cctv_events: dict[int, dict[str, dict]] = {}
+
         # RAG and Narrator initialization
         self.corpus = get_mock_corpus()
         self.retriever = RegulatoryRetriever(self.corpus)
@@ -140,6 +143,90 @@ class BatchProcessor:
                             self.latest_tti[zone_id][s_type] = (tti_secs, slope, urgency_str)
                         except Exception as e:
                             print(f"Error decoding TTI metadata for sensor {signal_id}: {e}")
+
+            elif src == 1:  # CCTV Vision Event
+                if meta:
+                    try:
+                        import json
+                        cctv_meta = {}
+                        try:
+                            cctv_meta = msgpack.unpackb(meta, raw=False)
+                        except Exception:
+                            meta_str = meta.decode('utf-8') if isinstance(meta, bytes) else meta
+                            cctv_meta = json.loads(meta_str)
+                            
+                        event_type = "PPEBreach" if signal_id == 1001 else "VisualSmoke" if signal_id == 1002 else None
+                        if event_type:
+                            ZONE_CHARS_MAP = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
+                            cam_id = cctv_meta.get("camera_id", f"CAM-{ZONE_CHARS_MAP[zone_id]}-{(signal_id%10)+1}")
+                            conf = cctv_meta.get("confidence", 0.95)
+                            role = cctv_meta.get("violator_role", "Contractor")
+                            
+                            if val > 0.0:
+                                self.latest_cctv_events.setdefault(zone_id, {})[event_type] = {
+                                    "active": True,
+                                    "camera_id": cam_id,
+                                    "confidence": conf,
+                                    "violator_role": role
+                                }
+                                
+                                # Generate and queue alert
+                                cctv_alert_id = f"AL-CCTV-{ZONE_CHARS_MAP[zone_id]}-{signal_id}"
+                                situation_desc = (
+                                    f"PPE Violation detected by CCTV Analytics in Zone {ZONE_CHARS_MAP[zone_id]} (camera {cam_id}). "
+                                    f"Worker role: {role}. Confidence: {conf*100:.1f}%."
+                                ) if signal_id == 1001 else (
+                                    f"Visual smoke/haze detected by CCTV Analytics in Zone {ZONE_CHARS_MAP[zone_id]} (camera {cam_id}). "
+                                    f"Confidence: {conf*100:.1f}%."
+                                )
+                                
+                                self.pending_updates.append({
+                                    "type": "alert",
+                                    "alert_id": cctv_alert_id,
+                                    "timestamp": time.time(),
+                                    "zone_id": zone_id,
+                                    "risk_score": 65.0 if signal_id == 1001 else 85.0,
+                                    "situation": situation_desc,
+                                    "actions": [
+                                        "Dispatch field supervisor to verify safety compliance." if signal_id == 1001 else "Deploy emergency deluge/water systems and check gas concentration.",
+                                        "Acknowledge and dismiss alert once verified."
+                                    ],
+                                    "regulatory_citations": [
+                                        {
+                                            "source": "OSHA 1910.132",
+                                            "section": "General requirements for PPE",
+                                            "similarity_score": 0.98,
+                                            "relevance": "Protective equipment, including personal protective equipment for eyes, face, head, and extremities, shall be provided, used, and maintained in a sanitary and reliable condition."
+                                        }
+                                    ] if signal_id == 1001 else [
+                                        {
+                                            "source": "NFPA 72",
+                                            "section": "National Fire Alarm and Signaling Code",
+                                            "similarity_score": 0.95,
+                                            "relevance": "Visual flame or smoke detection systems shall be installed in accordance with manufacturer specifications and shall supplement thermal/gas detection sensors."
+                                        }
+                                    ],
+                                    "urgency": "warning" if signal_id == 1001 else "critical",
+                                    "abstention_notes": [],
+                                    "is_cctv_alert": True,
+                                    "sensor_id": signal_id
+                                })
+                            else:
+                                if zone_id in self.latest_cctv_events and event_type in self.latest_cctv_events[zone_id]:
+                                    self.latest_cctv_events[zone_id][event_type]["active"] = False
+                                    
+                            self.pending_updates.append({
+                                "type": "cctv_update",
+                                "zone_id": zone_id,
+                                "signal_id": signal_id,
+                                "value": val,
+                                "active": val > 0.0,
+                                "camera_id": cam_id,
+                                "confidence": conf if val > 0.0 else 0.0,
+                                "violator_role": role if val > 0.0 else ""
+                            })
+                    except Exception as e:
+                        print(f"Error decoding CCTV metadata in zone {zone_id}: {e}")
 
             elif src == 4:  # PLUME consequence event
                 if meta:
@@ -413,6 +500,18 @@ class BatchProcessor:
             zone_fatigue = self.fatigue_monitor.get_zone_fatigue(zone_id)
             evidence["FatigueScore"] = zone_fatigue.fatigue_level
             evidence["_max_fatigue"] = zone_fatigue.max_fatigue_score
+
+            # CCTV Vision evidence
+            ppe_breached = "no"
+            smoke_detected = "no"
+            cctv_state = self.latest_cctv_events.get(zone_id, {})
+            if cctv_state.get("PPEBreach", {}).get("active", False):
+                ppe_breached = "yes"
+            if cctv_state.get("VisualSmoke", {}).get("active", False):
+                smoke_detected = "yes"
+                
+            evidence["PPEBreachActive"] = ppe_breached
+            evidence["VisualSmoke"] = smoke_detected
             evidence["_avg_fatigue"] = zone_fatigue.avg_fatigue_score
             evidence["_most_fatigued_operator"] = zone_fatigue.most_fatigued_operator
 
@@ -647,6 +746,30 @@ class BatchProcessor:
                                         print(f"Applying control override: Recalibrating sensor {s_id}")
                                         self.recalibrate_sensor(s_id)
                                 except ValueError:
+                                    pass
+
+                            # 3. CCTV acknowledgements
+                            acked_cctv = override_data.get("acked_cctv_events", [])
+                            for event_key in acked_cctv:
+                                try:
+                                    z_id, sig_id = map(int, event_key.split(":"))
+                                    event_type = "PPEBreach" if sig_id == 1001 else "VisualSmoke" if sig_id == 1002 else None
+                                    if event_type and z_id in self.latest_cctv_events and event_type in self.latest_cctv_events[z_id]:
+                                        if self.latest_cctv_events[z_id][event_type].get("active", False):
+                                            print(f"Applying control override: Acknowledging and clearing CCTV {event_type} in Zone {z_id}")
+                                            self.latest_cctv_events[z_id][event_type]["active"] = False
+                                            
+                                            self.pending_updates.append({
+                                                "type": "cctv_update",
+                                                "zone_id": z_id,
+                                                "signal_id": sig_id,
+                                                "value": 0.0,
+                                                "active": False,
+                                                "camera_id": self.latest_cctv_events[z_id][event_type].get("camera_id", ""),
+                                                "confidence": 0.0,
+                                                "violator_role": ""
+                                            })
+                                except Exception:
                                     pass
             except Exception as e:
                 print(f"Error reading control overrides: {e}")

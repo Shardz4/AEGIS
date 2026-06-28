@@ -86,6 +86,19 @@ async def ws_handler(request):
                                         updated = True
                                 except ValueError:
                                     pass
+                        elif action == "ack_cctv":
+                            z_id = data.get("zone_id")
+                            s_id = data.get("sensor_id")
+                            if z_id is not None and s_id is not None:
+                                try:
+                                    z_id = int(z_id)
+                                    s_id = int(s_id)
+                                    event_key = f"{z_id}:{s_id}"
+                                    if event_key not in overrides.setdefault("acked_cctv_events", []):
+                                        overrides["acked_cctv_events"].append(event_key)
+                                        updated = True
+                                except ValueError:
+                                    pass
                                     
                         if updated:
                             try:

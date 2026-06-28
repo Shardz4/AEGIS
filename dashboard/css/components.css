@@ -628,3 +628,102 @@
     cursor: not-allowed;
     background: transparent;
 }
+
+/* --- CCTV Video Analytics Widget & Overlay --- */
+.cctv-panel {
+    background: var(--bg-card);
+    border: 1px solid var(--rule-dim);
+    border-radius: 4px;
+    padding: 12px;
+    margin-top: 12px;
+}
+
+.cctv-title {
+    font-family: var(--font-sans);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-2);
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.cctv-camera-feed {
+    position: relative;
+    width: 100%;
+    height: 120px;
+    background: #090b10;
+    border: 1px solid var(--rule-strong);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.cctv-grid-overlay {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: 
+        linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+    background-size: 15px 15px;
+    pointer-events: none;
+}
+
+.cctv-hud {
+    position: absolute;
+    top: 6px; left: 8px; right: 8px;
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: #4ade80;
+    text-transform: uppercase;
+    pointer-events: none;
+}
+
+.cctv-hud.state-breached {
+    color: var(--state-warning);
+}
+
+.cctv-bbox {
+    position: absolute;
+    border: 1.5px solid #4ade80;
+    color: #4ade80;
+    font-family: var(--font-mono);
+    font-size: 8px;
+    font-weight: bold;
+    padding: 2px 4px;
+    pointer-events: none;
+    box-shadow: 0 0 8px rgba(74, 222, 128, 0.3);
+    display: none;
+}
+
+.cctv-bbox.state-breached {
+    border-color: var(--state-warning);
+    color: var(--state-warning);
+    box-shadow: 0 0 8px rgba(220, 140, 40, 0.3);
+}
+
+.cctv-scanline {
+    position: absolute;
+    width: 100%; height: 2px;
+    background: rgba(74, 222, 128, 0.05);
+    animation: cctv-scan 4s linear infinite;
+    pointer-events: none;
+}
+
+@keyframes cctv-scan {
+    0% { top: 0; }
+    100% { top: 100%; }
+}
+
+.map-camera-icon {
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.map-camera-icon.state-warning {
+    filter: drop-shadow(0 0 5px rgba(220, 140, 40, 0.7));
+}

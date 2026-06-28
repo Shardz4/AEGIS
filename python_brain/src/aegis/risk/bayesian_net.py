@@ -35,7 +35,9 @@ STATE_NAMES = {
     "EquipmentRisk": ["low", "medium", "high", "critical"],
     "PermitRisk": ["low", "medium", "high"],
     "IncidentProbability": ["negligible", "low", "moderate", "high", "critical"],
-    "ConsequenceSeverity": ["minor", "moderate", "major", "catastrophic"]
+    "ConsequenceSeverity": ["minor", "moderate", "major", "catastrophic"],
+    "PPEBreachActive": ["no", "yes"],
+    "VisualSmoke": ["no", "yes"]
 }
 
 def make_softmax_cpd(node_name, parent_names, parent_cards, states_card, weights, decay=0.8, safety_parents=None):
@@ -123,11 +125,13 @@ def build_bayesian_network() -> DiscreteBayesianNetwork:
         ("Pressure", "EquipmentRisk"),
         ("TTI_Urgency", "EquipmentRisk"),
         ("EquipAge", "EquipmentRisk"),
+        ("VisualSmoke", "EquipmentRisk"),
 
         # Permit Risk Subnetwork
         ("HotWorkActive", "PermitRisk"),
         ("ConfinedSpace", "PermitRisk"),
         ("WorkerCount", "PermitRisk"),
+        ("PPEBreachActive", "PermitRisk"),
 
         # Incident Probability Node
         ("EquipmentRisk", "IncidentProbability"),
@@ -160,32 +164,38 @@ def build_bayesian_network() -> DiscreteBayesianNetwork:
     # FatigueScore: [normal, moderate, high]
     cpd_fatigue = TabularCPD("FatigueScore", 3, [[0.80], [0.15], [0.05]], state_names={"FatigueScore": STATE_NAMES["FatigueScore"]})
 
+    # CCTV Priors
+    # PPEBreachActive: [no, yes]
+    cpd_ppe = TabularCPD("PPEBreachActive", 2, [[0.95], [0.05]], state_names={"PPEBreachActive": STATE_NAMES["PPEBreachActive"]})
+    # VisualSmoke: [no, yes]
+    cpd_smoke = TabularCPD("VisualSmoke", 2, [[0.99], [0.01]], state_names={"VisualSmoke": STATE_NAMES["VisualSmoke"]})
+
     # Build Joint CPDs programmatically using make_softmax_cpd
     
     # EquipmentRisk: [low, medium, high, critical] (4 states)
-    # Parents: GasLevel (4), Temperature (4), Pressure (4), TTI_Urgency (4), EquipAge (3)
-    # Safety parents: GasLevel, Temperature, Pressure, TTI_Urgency
+    # Parents: GasLevel (4), Temperature (4), Pressure (4), TTI_Urgency (4), EquipAge (3), VisualSmoke (2)
+    # Safety parents: GasLevel, Temperature, Pressure, TTI_Urgency, VisualSmoke
     cpd_eq_risk = make_softmax_cpd(
         node_name="EquipmentRisk",
-        parent_names=["GasLevel", "Temperature", "Pressure", "TTI_Urgency", "EquipAge"],
-        parent_cards=[4, 4, 4, 4, 3],
+        parent_names=["GasLevel", "Temperature", "Pressure", "TTI_Urgency", "EquipAge", "VisualSmoke"],
+        parent_cards=[4, 4, 4, 4, 3, 2],
         states_card=4,
-        weights=[0.35, 0.15, 0.15, 0.25, 0.10],
+        weights=[0.30, 0.12, 0.12, 0.20, 0.08, 0.18],
         decay=0.4,
-        safety_parents=["GasLevel", "Temperature", "Pressure", "TTI_Urgency"]
+        safety_parents=["GasLevel", "Temperature", "Pressure", "TTI_Urgency", "VisualSmoke"]
     )
 
     # PermitRisk: [low, medium, high] (3 states)
-    # Parents: HotWorkActive (2), ConfinedSpace (2), WorkerCount (3)
-    # Safety parents: HotWorkActive, ConfinedSpace
+    # Parents: HotWorkActive (2), ConfinedSpace (2), WorkerCount (3), PPEBreachActive (2)
+    # Safety parents: HotWorkActive, ConfinedSpace, PPEBreachActive
     cpd_permit_risk = make_softmax_cpd(
         node_name="PermitRisk",
-        parent_names=["HotWorkActive", "ConfinedSpace", "WorkerCount"],
-        parent_cards=[2, 2, 3],
+        parent_names=["HotWorkActive", "ConfinedSpace", "WorkerCount", "PPEBreachActive"],
+        parent_cards=[2, 2, 3, 2],
         states_card=3,
-        weights=[0.40, 0.30, 0.30],
+        weights=[0.30, 0.25, 0.25, 0.20],
         decay=0.3,
-        safety_parents=["HotWorkActive", "ConfinedSpace"]
+        safety_parents=["HotWorkActive", "ConfinedSpace", "PPEBreachActive"]
     )
 
     # IncidentProbability: [negligible, low, moderate, high, critical] (5 states)
@@ -218,6 +228,7 @@ def build_bayesian_network() -> DiscreteBayesianNetwork:
     model.add_cpds(
         cpd_gas, cpd_temp, cpd_press, cpd_tti, cpd_age,
         cpd_hotwork, cpd_confined, cpd_workers, cpd_fatigue,
+        cpd_ppe, cpd_smoke,
         cpd_eq_risk, cpd_permit_risk, cpd_incident_prob, cpd_consequence
     )
 

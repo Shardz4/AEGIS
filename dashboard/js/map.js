@@ -25,6 +25,19 @@ export class PlantMapManager {
         this.evacPaths = {};
         this.blockedZones = [];
 
+        // CCTV cameras coordinates
+        this.cameras = [
+            { id: 'CAM-A-101', zone_id: 0, x: 250, y: 50 },
+            { id: 'CAM-B-201', zone_id: 1, x: 550, y: 50 },
+            { id: 'CAM-C-301', zone_id: 2, x: 840, y: 50 },
+            { id: 'CAM-D-401', zone_id: 3, x: 250, y: 235 },
+            { id: 'CAM-E-501', zone_id: 4, x: 550, y: 235 },
+            { id: 'CAM-F-601', zone_id: 5, x: 840, y: 235 },
+            { id: 'CAM-G-701', zone_id: 6, x: 250, y: 420 },
+            { id: 'CAM-H-801', zone_id: 7, x: 840, y: 420 }
+        ];
+        this.cameraWarnings = new Set();
+
         // Zone geometry
         this.zones = {
             0: { label: 'A  TANK FARM',       x:  30, y:  30, w: 250, h: 160, ps: { x: 155, y: 110 } },
@@ -285,7 +298,46 @@ export class PlantMapManager {
         }
         ctx.restore();
 
+        // 9. CCTV Cameras overlay
+        this.cameras.forEach(cam => {
+            const isWarning = this.cameraWarnings.has(cam.id);
+            ctx.save();
+            ctx.translate(cam.x, cam.y);
+            
+            // Camera body
+            ctx.fillStyle = isWarning ? '#886830' : '#333333';
+            ctx.fillRect(-6, -4, 12, 8);
+            
+            // Lens
+            ctx.fillStyle = isWarning ? '#aa3333' : '#222222';
+            ctx.fillRect(6, -2, 3, 4);
+            
+            // Bracket
+            ctx.strokeStyle = isWarning ? '#886830' : '#333333';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(-4, 4);
+            ctx.lineTo(-4, 8);
+            ctx.lineTo(0, 8);
+            ctx.stroke();
+            
+            // ID label
+            ctx.fillStyle = isWarning ? '#886830' : '#333333';
+            ctx.font = '400 6px "JetBrains Mono", monospace';
+            ctx.fillText(cam.id, -15, -8);
+            
+            ctx.restore();
+        });
+
         ctx.restore();
+    }
+
+    setCameraWarning(camId, active) {
+        if (active) {
+            this.cameraWarnings.add(camId);
+        } else {
+            this.cameraWarnings.delete(camId);
+        }
     }
 
     _drawWind(ctx, x, y) {
