@@ -1,11 +1,54 @@
 import os
+import sys
 import json
+import struct
 import pytest
 import numpy as np
+
+# Ensure python_brain/src is in sys.path
+src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
+if src_path not in sys.path:
+    sys.path.insert(0, src_path)
+
 from aegis.risk.bayesian_net import build_bayesian_network, RiskEngine
 from aegis.risk.batch_processor import BatchProcessor
-from aegis.risk.permit_store import PermitStore
-from ring_buffer_py import RingBufferPy
+from aegis.permits.permit_store import PermitStore
+from aegis.graph.equipment_graph import EquipmentGraph
+from aegis.ipc.reader import RingBufferReader
+import msgpack
+
+class MockRingBuffer:
+    def __init__(self, path, capacity=4096):
+        self.path = os.path.abspath(path)
+        self.capacity = capacity
+        # Initialize file with SCADA Ring Buffer Header
+        # 64-byte header: write_pos(0), read_pos(0), capacity(data_cap), event_count(0)
+        data_cap = capacity - 64
+        with open(self.path, "wb") as f:
+            header = struct.pack("<QQQQ", 0, 0, data_cap, 0) + b"\x00" * 32
+            f.write(header + b"\x00" * data_cap)
+            
+    def push_event(self, ts, src, zone, signal_id, value, meta=b""):
+        payload = msgpack.packb([ts, src, zone, signal_id, value, meta])
+        length = len(payload)
+        
+        with open(self.path, "r+b") as f:
+            header = f.read(64)
+            write_pos, read_pos, data_cap, event_count = struct.unpack("<QQQQ", header[:32])
+            
+            len_bytes = struct.pack("<I", length)
+            
+            curr_pos = write_pos
+            for byte in len_bytes + payload:
+                offset = curr_pos % data_cap
+                f.seek(64 + offset)
+                f.write(bytes([byte]))
+                curr_pos += 1
+                
+            # Update header
+            f.seek(0)
+            f.write(struct.pack("<QQQQ", curr_pos, read_pos, data_cap, event_count + 1) + b"\x00" * 32)
+
 
 def test_bayesian_network_cctv_nodes():
     """Verify that the BN compiles and propagates CCTV risk factors correctly."""
@@ -26,7 +69,6 @@ def test_bayesian_network_cctv_nodes():
         "VisualSmoke": "no"
     }
     res_base = engine.compute_risk(zone_id=2, timestamp=100.0, evidence=evidence_base)
-    base_prob = res_base.incident_probability["critical"]
     base_score = res_base.risk_score
     
     # 2. Case with PPE Breach active
@@ -49,22 +91,32 @@ def test_bayesian_network_cctv_nodes():
 
 def test_batch_processor_cctv_ingestion():
     """Verify that BatchProcessor processes CCTV telemetry events and triggers overrides."""
-    # Setup dummy ring buffer file
     rb_path = "test_cctv_ring.dat"
     if os.path.exists(rb_path):
-        os.remove(rb_path)
+        try:
+            os.remove(rb_path)
+        except Exception:
+            pass
         
     try:
-        # Create a tiny ring buffer
-        rb = RingBufferPy(rb_path, 4096)
+        # Create mock ring buffer
+        rb = MockRingBuffer(rb_path, 4096)
         
         # Initialize BatchProcessor
-        bp = BatchProcessor(rb_path)
+        graph = EquipmentGraph()
+        permit_store = PermitStore(graph)
+        engine = RiskEngine()
+        reader = RingBufferReader(rb_path)
         
-        # 1. Push a PPE Breach event (src=1, signal_id=1001, val=1.0)
-        import msgpack
-        meta_payload = msgpack.packb({"camera_id": "CAM-C-301", "confidence": 0.94, "violator_role": "Contractor"})
+        bp = BatchProcessor(
+            ring_reader=reader,
+            risk_engine=engine,
+            equipment_graph=graph,
+            permit_store=permit_store
+        )
         
+        # 1. Push a PPE Breach event
+        meta_payload = json.dumps({"camera_id": "CAM-C-301", "confidence": 0.94, "violator_role": "Contractor"}).encode('utf-8')
         rb.push_event(
             ts=1000,
             src=1, # CCTV
@@ -95,7 +147,7 @@ def test_batch_processor_cctv_ingestion():
             
         try:
             # Run one process loop tick
-            bp.process_events()
+            bp.run(duration_seconds=0.05)
             
             # Verify that the CCTV event is no longer active
             assert bp.latest_cctv_events[2]["PPEBreach"]["active"] is False
@@ -109,6 +161,12 @@ def test_batch_processor_cctv_ingestion():
             if os.path.exists(override_file):
                 os.remove(override_file)
                 
+            # Close the reader so we can delete the file cleanly
+            reader.close()
+                
     finally:
         if os.path.exists(rb_path):
-            os.remove(rb_path)
+            try:
+                os.remove(rb_path)
+            except Exception:
+                pass

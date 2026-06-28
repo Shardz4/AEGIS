@@ -585,7 +585,31 @@ class AegisApp {
                 confidence: 0.94,
                 violator_role: 'Contractor'
             });
-            log('CCTV PPE Breach event detected in Zone C');
+            this.handleUpdate({
+                type: 'alert',
+                alert_id: 'AL-CCTV-C-1001',
+                timestamp: Date.now() / 1000,
+                zone_id: 2,
+                risk_score: 65.0,
+                situation: 'PPE Violation detected by CCTV Analytics in Zone C (camera CAM-C-301). Worker role: Contractor. Confidence: 94.0%.',
+                actions: [
+                    'Dispatch field supervisor to verify safety compliance.',
+                    'Acknowledge and dismiss alert once verified.'
+                ],
+                regulatory_citations: [
+                    {
+                        source: 'OSHA 1910.132',
+                        section: 'General requirements for PPE',
+                        similarity_score: 0.98,
+                        relevance: 'Protective equipment, including personal protective equipment for eyes, face, head, and extremities, shall be provided, used, and maintained in a sanitary and reliable condition.'
+                    }
+                ],
+                urgency: 'warning',
+                abstention_notes: [],
+                is_cctv_alert: true,
+                sensor_id: 1001
+            });
+            log('CCTV PPE Breach event and warning alert detected in Zone C');
         }
         else if (t === 20) {
             this.handleUpdate({
@@ -636,7 +660,31 @@ class AegisApp {
                 confidence: 0.96,
                 violator_role: ''
             });
-            log('CCTV Visual Smoke event detected in Zone C');
+            this.handleUpdate({
+                type: 'alert',
+                alert_id: 'AL-CCTV-C-1002',
+                timestamp: Date.now() / 1000,
+                zone_id: 2,
+                risk_score: 85.0,
+                situation: 'Visual smoke/haze detected by CCTV Analytics in Zone C (camera CAM-C-301). Confidence: 96.0%.',
+                actions: [
+                    'Deploy emergency deluge/water systems and check gas concentration.',
+                    'Acknowledge and dismiss alert once verified.'
+                ],
+                regulatory_citations: [
+                    {
+                        source: 'NFPA 72',
+                        section: 'National Fire Alarm and Signaling Code',
+                        similarity_score: 0.95,
+                        relevance: 'Visual flame or smoke detection systems shall be installed in accordance with manufacturer specifications and shall supplement thermal/gas detection sensors.'
+                    }
+                ],
+                urgency: 'critical',
+                abstention_notes: [],
+                is_cctv_alert: true,
+                sensor_id: 1002
+            });
+            log('CCTV Visual Smoke event and critical alert detected in Zone C');
         }
         else if (t === 70) {
             if (!this.recalibratedSensors.has(5)) {
@@ -947,7 +995,6 @@ class AegisApp {
             if (camStatus) camStatus.textContent = 'NOMINAL';
             if (bbox) bbox.style.display = 'none';
         }
-    }
     }
 
     applyDemoMitigationEffects() {
