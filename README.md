@@ -41,6 +41,12 @@ The system is divided into three primary processing layers linked by high-perfor
   * **$\le 2$ sensors deviate**: Classified as a `SENSOR_MALFUNCTION`. The sensor is flagged as faulty, shows `[FAULT]` / `FAULTY SENSOR` on the dashboard, and is excluded from Bayesian risk and TTI urgency calculations to prevent false alarms.
   * **$> 2$ sensors deviate**: Voted as a `PROCESS_ANOMALY` (real hazard), and the risk assessment escalates normally.
 
+### 6. Real-Time CCTV Vision Analytics Integration
+* **AI Vision Ingestion**: Ingests live camera telemetry streams containing visual breach metadata (confidence, camera ID, violator role).
+* **Bayesian Risk Propagation**: Extends the core Bayesian safety network with `PPEBreachActive` and `VisualSmoke` evidence nodes to automatically elevate risk profiles during active violations.
+* **Interactive HUD & Camera Feed**: Embeds a live camera feed panel inside the dashboard sidebar displaying dynamic bounding boxes and flashing alert strobes during active breaches.
+* **Closed-Loop Acknowledgements**: Features dedicated "Acknowledge & Clear Violation" action buttons that forward overrides to the Python brain, immediately dismissing warnings and restoring nominal status.
+
 ---
 
 ## 📂 Repository Directory Layout
@@ -103,6 +109,11 @@ python -m pytest python_brain/tests/test_mitigation.py
 python -m pytest python_brain/tests/test_malfunction.py
 ```
 
+### 5. CCTV Vision Analytics & Integration Tests
+```bash
+python -m pytest python_brain/tests/test_cctv.py
+```
+
 ---
 
 ## 💻 Running the Live Console Dashboard
@@ -118,7 +129,9 @@ python -m pytest python_brain/tests/test_malfunction.py
    * Click **RUN DEMO** in the header.
    * Watch the timeline milestones:
      * **t=10s**: Gas leak starts in Zone C.
+     * **t=15s**: CCTV PPE Breach on camera CAM-C-301 is triggered (Contractor, 94% confidence) with warning alert AL-CCTV-C-1001. Click **Acknowledge & Clear Violation** to dismiss the alert and restore the camera to nominal.
      * **t=20s**: Simulated sensor malfunction is injected on pressure sensor `SEN-18` (value: 95.0, urgency: critical). Observe the dashed gray line in the sparklines, `[FAULT]` display, and `1 SEN` fault badge in Reactor Area details, while Reactor Area risk remains normal.
      * **t=30s**: Hot Work permit starts in Zone C.
+     * **t=45s**: CCTV Visual Smoke detected on camera CAM-C-301 (96% confidence) raising critical alert AL-CCTV-C-1002.
      * **t=60s**: Plume model visualizes gas spread.
      * **t=90s**: Malfunction clears, real alarm AL-02-0001 is triggered, and safe evacuation path shifts dynamically.
