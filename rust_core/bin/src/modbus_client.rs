@@ -38,9 +38,17 @@ pub struct ModbusActuationCommand {
 
 pub async fn run_modbus_ingest(
     config: ModbusConfig,
-    mut ring_buffer: RingBuffer,
+    ring_buffer_path: String,
+    ring_buffer_capacity: u64,
     mut rx_actuation: mpsc::Receiver<ModbusActuationCommand>,
 ) {
+    let mut ring_buffer = match RingBuffer::new(&ring_buffer_path, ring_buffer_capacity, false) {
+        Ok(rb) => rb,
+        Err(e) => {
+            eprintln!("[Modbus] Failed to open RingBuffer: {:?}", e);
+            return;
+        }
+    };
     let plc_addr = format!("{}:{}", config.plc_ip, config.plc_port);
     let socket_addr: SocketAddr = match plc_addr.parse() {
         Ok(addr) => addr,
@@ -101,9 +109,9 @@ pub async fn run_modbus_ingest(
                                 if let Some(&raw_val) = vals.first() {
                                     let scaled_val = raw_val as f64 * input.scale;
                                     let now_sec = SystemTime::now()
-                                        .duration_since(UNCH_EPOCH())
+                                        .duration_since(unch_epoch())
                                         .unwrap_or_default()
-                                        .as_secs_f64();
+                                        .as_secs();
                                     
                                     let event = SensorEvent {
                                         ts: now_sec,
@@ -140,6 +148,6 @@ pub async fn run_modbus_ingest(
 }
 
 // Helper to represent UNIX_EPOCH securely
-fn UNCH_EPOCH() -> SystemTime {
+fn unch_epoch() -> SystemTime {
     UNIX_EPOCH
 }

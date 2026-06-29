@@ -118,7 +118,7 @@ class BatchProcessor:
             if zone_id not in self.latest_tti:
                 self.latest_tti[zone_id] = {}
 
-            if src == 0:  # SCADA telemetry
+            if src == 0 or src == 2 or src == 3:  # SCADA / Modbus / OPC UA telemetry
                 s_node = f"SENSOR_{signal_id}"
                 if s_node in self.equipment_graph.g.nodes:
                     s_type = self.equipment_graph.g.nodes[s_node]["sensor_type"]

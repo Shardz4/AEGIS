@@ -1,10 +1,13 @@
+mod modbus_client;
+mod opcua_client;
+
 use ring_buffer::RingBuffer;
 use scada_sim::{ScadaSimulator, SimConfig, SensorType, Scenario};
 use tti_engine::{TtiEngine, TtiResult, Urgency};
 use plume_sim::{PlumeEngine, PlumeParams, ZoneBoundary};
 use ring_buffer::SensorEvent;
 use std::time::{Instant, Duration};
-use std::thread;
+use tokio::sync::mpsc;
 
 fn format_tti(tti: Option<f64>) -> String {
     match tti {
@@ -48,7 +51,8 @@ fn urgency_label(urgency: Urgency) -> &'static str {
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = std::env::var("AEGIS_RING_PATH").unwrap_or_else(|_| "aegis_ring.bin".to_string());
     println!("Starting AEGIS Pipeline Daemon");
     println!("Ring buffer: {}", path);
@@ -56,6 +60,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize shared-memory ring buffer (64MB)
     let mut rb = RingBuffer::new(&path, 64 * 1024 * 1024, false)?;
+
+    // Check ingest mode
+    let ingest_mode = std::env::var("AEGIS_INGEST_MODE").unwrap_or_default();
+    let use_industrial_ingest = ingest_mode == "OPC_MODBUS";
+    let mut modbus_tx = None;
+
+    if use_industrial_ingest {
+        if let Ok(config_str) = std::fs::read_to_string("industrial_config.json") {
+            if let Ok(config_json) = serde_json::from_str::<serde_json::Value>(&config_str) {
+                println!("[Pipeline] Industrial Ingestion mode active. Initializing Modbus TCP and OPC UA tasks.");
+                
+                // Parse Modbus config
+                if let Some(mb_val) = config_json.get("modbus_tcp") {
+                    if let Ok(mb_config) = serde_json::from_value::<modbus_client::ModbusConfig>(mb_val.clone()) {
+                        let (tx, rx) = mpsc::channel(32);
+                        modbus_tx = Some(tx);
+                        
+                        let rb_path = path.clone();
+                        tokio::spawn(async move {
+                            modbus_client::run_modbus_ingest(mb_config, rb_path, 64 * 1024 * 1024, rx).await;
+                        });
+                    }
+                }
+
+                // Parse OPC UA config
+                if let Some(opc_val) = config_json.get("opc_ua") {
+                    if let Ok(opc_config) = serde_json::from_value::<opcua_client::OpcUaConfig>(opc_val.clone()) {
+                        let rb_path = path.clone();
+                        tokio::spawn(async move {
+                            opcua_client::run_opcua_ingest(opc_config, rb_path, 64 * 1024 * 1024).await;
+                        });
+                    }
+                }
+            }
+        }
+    }
 
     // Define 8 plant zones (center_x, center_y, radius_m)
     let zone_boundaries = vec![
@@ -119,6 +159,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         sensor.ticks_in_scenario = 0;
                                         sensor.drift = 0.0;
                                     }
+                                }
+                                // Also trigger Modbus coil write if active
+                                if let Some(ref tx) = modbus_tx {
+                                    let _ = tx.send(modbus_client::ModbusActuationCommand {
+                                        zone: zone_id,
+                                        action: "isolate_feed".to_string(),
+                                    }).await;
                                 }
                             }
                         }
@@ -310,7 +357,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if !std::env::var("AEGIS_UNTHROTTLED").is_ok() {
             let elapsed = tick_start.elapsed();
             if elapsed < tick_duration {
-                thread::sleep(tick_duration - elapsed);
+                tokio::time::sleep(tick_duration - elapsed).await;
             }
         }
     }

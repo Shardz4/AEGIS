@@ -22,8 +22,16 @@ pub struct OpcUaConfig {
 
 pub async fn run_opcua_ingest(
     config: OpcUaConfig,
-    mut ring_buffer: RingBuffer,
+    ring_buffer_path: String,
+    ring_buffer_capacity: u64,
 ) {
+    let mut ring_buffer = match RingBuffer::new(&ring_buffer_path, ring_buffer_capacity, false) {
+        Ok(rb) => rb,
+        Err(e) => {
+            eprintln!("[OPC UA] Failed to open RingBuffer: {:?}", e);
+            return;
+        }
+    };
     // Parse address from endpoint URL (e.g. opc.tcp://127.0.0.1:4840)
     let raw_addr = config.endpoint
         .replace("opc.tcp://", "");
@@ -83,7 +91,7 @@ pub async fn run_opcua_ingest(
                         let now_sec = SystemTime::now()
                             .duration_since(UNIX_EPOCH)
                             .unwrap_or_default()
-                            .as_secs_f64();
+                            .as_secs();
                         
                         let event = SensorEvent {
                             ts: now_sec,
@@ -115,7 +123,7 @@ pub async fn run_opcua_ingest(
                         let now_sec = SystemTime::now()
                             .duration_since(UNIX_EPOCH)
                             .unwrap_or_default()
-                            .as_secs_f64();
+                            .as_secs();
                         
                         let event = SensorEvent {
                             ts: now_sec,
