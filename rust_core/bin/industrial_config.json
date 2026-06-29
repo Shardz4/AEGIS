@@ -1,0 +1,22 @@
+{
+  "opc_ua": {
+    "endpoint": "opc.tcp://localhost:4840",
+    "security_policy": "None",
+    "subscription_interval_ms": 100,
+    "tags": [
+      { "node_id": "ns=2;s=Reactor_C_GasLevel", "zone": 2, "signal_id": 0 },
+      { "node_id": "ns=2;s=Reactor_C_Temp", "zone": 2, "signal_id": 5 }
+    ]
+  },
+  "modbus_tcp": {
+    "plc_ip": "127.0.0.1",
+    "plc_port": 5502,
+    "poll_interval_ms": 100,
+    "inputs": [
+      { "register_address": 30001, "register_type": "input", "zone": 2, "signal_id": 6, "scale": 0.1 }
+    ],
+    "outputs": [
+      { "mitigation_type": "isolate_feed", "zone": 2, "coil_address": 10001 }
+    ]
+  }
+}
