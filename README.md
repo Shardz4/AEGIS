@@ -41,22 +41,25 @@ The system is divided into three primary processing layers linked by high-perfor
   * **$\le 2$ sensors deviate**: Classified as a `SENSOR_MALFUNCTION`. The sensor is flagged as faulty, shows `[FAULT]` / `FAULTY SENSOR` on the dashboard, and is excluded from Bayesian risk and TTI urgency calculations to prevent false alarms.
   * **$> 2$ sensors deviate**: Voted as a `PROCESS_ANOMALY` (real hazard), and the risk assessment escalates normally.
 
-### 6. Real-Time CCTV Vision Analytics Integration
-* **AI Vision Ingestion**: Ingests live camera telemetry streams containing visual breach metadata (confidence, camera ID, violator role).
-* **Bayesian Risk Propagation**: Extends the core Bayesian safety network with `PPEBreachActive` and `VisualSmoke` evidence nodes to automatically elevate risk profiles during active violations.
-* **Interactive HUD & Camera Feed**: Embeds a live camera feed panel inside the dashboard sidebar displaying dynamic bounding boxes and flashing alert strobes during active breaches.
-* **Closed-Loop Acknowledgements**: Features dedicated "Acknowledge & Clear Violation" action buttons that forward overrides to the Python brain, immediately dismissing warnings and restoring nominal status.
+### 7. Industrial Protocol Support & Data Ingestion (OPC UA & Modbus TCP)
+* **OPC UA TCP Historian Ingestion**: Supports establishing a direct TCP connection with plant historians and subscribing to tags using a pure-Rust Hello/Acknowledge (`HEL`/`ACK`) handshake client.
+* **Modbus TCP PLC Ingestion**: Connects natively to Edge PLCs using `tokio-modbus` to read Input Registers and Holding Registers, mapping signals directly to plant zones.
+* **Closed-loop Coil Actuation**: Translates isolation and mitigation commands into digital output coil writes (e.g. shutting valves / triggering deluge systems) to edge PLCs.
+* **Configurable Tags Mapping**: Map NodeIds and Register addresses dynamically through `industrial_config.json`.
 
 ---
 
 ## 📂 Repository Directory Layout
 * `rust_core/`: Rust workspace containing the SCADA simulation and pipeline processor.
   * `bin/src/main.rs`: The pipeline daemon processing telemetry, TTI, and plumes.
+  * `bin/src/modbus_client.rs`: Modbus TCP telemetry polling and coil actuation task.
+  * `bin/src/opcua_client.rs`: OPC UA TCP subscription and monitored tag client task.
+  * `bin/industrial_config.json`: Configuration mapping OPC tags and Modbus registers to AEGIS signal keys.
   * `scada_sim/`: SCADA simulation generating drift telemetry.
   * `ring_buffer/`: Lock-free shared-memory ring buffer.
 * `python_brain/`: Python package housing the Bayesian network, permit graph, and RAG narrator.
   * `src/aegis/risk/batch_processor.py`: The core telemetry and risk evaluation processor.
-  * `tests/`: Automated test suite (`test_ipc.py`, `test_routing.py`, `test_mitigation.py`, `test_malfunction.py`).
+  * `tests/`: Automated test suite (`test_ipc.py`, `test_routing.py`, `test_mitigation.py`, `test_malfunction.py`, `test_cctv.py`, `test_industrial.py`).
 * `dashboard/`: Web app dashboard resources (HTML, CSS, JS, server).
   * `server.py`: Python web server serving dashboard and managing WebSocket broadcasts.
   * `js/app.js`: Main frontend coordinator.
@@ -114,6 +117,11 @@ python -m pytest python_brain/tests/test_malfunction.py
 python -m pytest python_brain/tests/test_cctv.py
 ```
 
+### 6. Industrial Protocols Ingestion & Integration Tests
+```bash
+python -m pytest python_brain/tests/test_industrial.py
+```
+
 ---
 
 ## 💻 Running the Live Console Dashboard
@@ -135,3 +143,13 @@ python -m pytest python_brain/tests/test_cctv.py
      * **t=45s**: CCTV Visual Smoke detected on camera CAM-C-301 (96% confidence) raising critical alert AL-CCTV-C-1002.
      * **t=60s**: Plume model visualizes gas spread.
      * **t=90s**: Malfunction clears, real alarm AL-02-0001 is triggered, and safe evacuation path shifts dynamically.
+
+3. **Enable Live Industrial Ingest Mode (OPC UA / Modbus TCP)**:
+   * To boot the pipeline daemon listening to physical OPC UA historian tags and polling Modbus TCP registers:
+     ```bash
+     # From rust_core directory
+     $env:AEGIS_INGEST_MODE="OPC_MODBUS"
+     ./target/release/bin
+     ```
+   * Telemetry inputs read via Modbus and OPC UA will automatically stream into the Ring Buffer and feed the Python safety assessments in real time.
+
