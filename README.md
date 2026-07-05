@@ -47,6 +47,12 @@ The system is divided into three primary processing layers linked by high-perfor
 * **Closed-loop Coil Actuation**: Translates isolation and mitigation commands into digital output coil writes (e.g. shutting valves / triggering deluge systems) to edge PLCs.
 * **Configurable Tags Mapping**: Map NodeIds and Register addresses dynamically through `industrial_config.json`.
 
+### 8. Regulatory Auditing & Compliance Tracking (OSHA PSM / ISO 45001)
+* **Live Compliance Dashboard**: Integrated table tracking the plant's real-time state against critical OSHA PSM and OISD safety clauses.
+* **OSHA 1910.119(f) — Operating Procedures**: Monitors emergency shutdown (ESD) status and tracks active evacuation routes dynamically.
+* **OSHA 1910.119(j) — Mechanical Integrity**: Audits deluge system test schedule. Features an interactive **Run Test** button allowing auditors to verify safety-critical integrity and transition status to COMPLIANT.
+* **OISD-STD-116 Sec 5.3 — Hot Work LEL limits**: Automatically detects unsafe Hot Work permit activity in zones with high LEL concentrations (> 10%), triggering a compliance BREACH. Offers a **Revoke Permit** action to mitigate risk and restore compliance.
+
 ---
 
 ## 📂 Repository Directory Layout
