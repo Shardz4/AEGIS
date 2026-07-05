@@ -110,6 +110,30 @@
                         </div>
                     </div>
                 </div>
+                
+                <!-- COMPLIANCE AUDITING DASHBOARD -->
+                <div class="compliance-panel">
+                    <div class="panel-header">
+                        <h2>Regulatory Compliance Tracking (OSHA PSM / ISO 45001)</h2>
+                        <span class="count" id="compliance-status-summary">3 Clauses Active</span>
+                    </div>
+                    <div class="compliance-table-container scrollable">
+                        <table class="compliance-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 15%;">Standard</th>
+                                    <th style="width: 20%;">Clause</th>
+                                    <th style="width: 30%;">Description</th>
+                                    <th style="width: 15%;">Plant Status</th>
+                                    <th style="width: 20%;">Action Item</th>
+                                </tr>
+                            </thead>
+                            <tbody id="compliance-table-body">
+                                <!-- Dynamically populated by app.js -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </section>
 
             <!-- RIGHT: Alert Feed -->

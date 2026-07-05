@@ -94,6 +94,26 @@ class AegisApp {
             { operator_id: 'OP_004', name: 'Marcus A.', role: 'Field Operator', current_zone: 3 },
             { operator_id: 'OP_005', name: 'Sarah C.', role: 'Control Room', current_zone: 4 }
         ]);
+
+        // Compliance Dashboard Initialization
+        this.delugeTested = false;
+        const complianceTable = document.getElementById('compliance-table-body');
+        if (complianceTable) {
+            complianceTable.addEventListener('click', (e) => {
+                if (e.target.classList.contains('btn-deluge-test')) {
+                    this.delugeTested = true;
+                    log('Compliance: Deluge pump test initiated and verified.');
+                    this.updateComplianceDashboard();
+                } else if (e.target.classList.contains('btn-cancel-permit')) {
+                    // Trigger permit cancellation
+                    this.cancelledPermits.add(e.target.dataset.permitId);
+                    e.target.disabled = true;
+                    e.target.textContent = 'Revoked';
+                    this.handleMitigationClick(e);
+                }
+            });
+        }
+        this.updateComplianceDashboard();
     }
 
     /* --- Clock --- */
@@ -279,6 +299,7 @@ class AegisApp {
                 this.applyMitigationState(msg);
                 break;
         }
+        this.updateComplianceDashboard();
     }
 
     /* --- Zone Table Rendering (dense tabular rows) --- */
@@ -823,6 +844,7 @@ class AegisApp {
             log('Evacuation order dispatched');
             clearInterval(this.demoTimer);
         }
+        this.updateComplianceDashboard();
     }
 
     handleMitigationClick(e) {
@@ -1020,6 +1042,120 @@ class AegisApp {
                 type: 'sensor_update', signal_id: 6, zone_id: 2,
                 value: 2.4, tti_seconds: null, urgency: 'normal'
             });
+        }
+    }
+
+    updateComplianceDashboard() {
+        const tableBody = document.getElementById('compliance-table-body');
+        const summaryCount = document.getElementById('compliance-status-summary');
+        if (!tableBody) return;
+
+        // 1. Clause: OSHA 1910.119 (f) - Operating Procedures
+        let oshaFStatus = 'COMPLIANT';
+        let oshaFAction = 'None';
+        
+        // Check if any zone has active plume or emergency blocked status
+        let hasEmergency = false;
+        for (let i = 0; i < 8; i++) {
+            const zone = this.zoneState[i];
+            if (zone && (zone.risk_score > 60 || (zone.evac_path && zone.evac_path.length > 0) || this.mapManager.blockedZones.includes(i))) {
+                hasEmergency = true;
+                break;
+            }
+        }
+        
+        if (hasEmergency) {
+            oshaFStatus = 'COMPLIANT (ESD Active)';
+            oshaFAction = 'Emergency shutdown activated; evacuation routing live';
+        }
+
+        // 2. Clause: OSHA 1910.119 (j) - Mechanical Integrity
+        let oshaJStatus = 'WARNING';
+        let oshaJAction = '';
+        
+        if (this.delugeTested) {
+            oshaJStatus = 'COMPLIANT';
+            oshaJAction = 'Tested successfully today';
+        } else {
+            oshaJStatus = 'WARNING';
+            oshaJAction = `
+                <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                    <span>Deluge pump test overdue by 4 days</span>
+                    <button class="btn-action btn-deluge-test" style="margin-left: 8px;">Run Test</button>
+                </div>
+            `;
+        }
+
+        // 3. Clause: OISD-STD-116 Sec 5.3 - Hot Work requires LEL < 10%
+        let oisdStatus = 'COMPLIANT';
+        let oisdAction = 'None';
+
+        let hotWorkActive = false;
+        let highGasLEL = false;
+        
+        if (this.demoActive) {
+            hotWorkActive = this.demoTime >= 30 && !this.cancelledPermits.has('PTW-8022') && !this.mitigatedZones.has(2);
+            highGasLEL = this.demoTime >= 10 && !this.mitigatedZones.has(2);
+        } else {
+            // Live Mode inspection
+            for (let i = 0; i < 8; i++) {
+                const zone = this.zoneState[i];
+                if (zone) {
+                    const permits = zone.active_permits || [];
+                    if (permits.includes('HotWork') || permits.includes('Hot Work') || permits.includes('PTW-8022')) {
+                        hotWorkActive = true;
+                    }
+                }
+            }
+            const gasSensor = this.chartsManager?.sensorMeta?.[15];
+            if (gasSensor && gasSensor.value >= 10.0) {
+                highGasLEL = true;
+            }
+        }
+
+        if (hotWorkActive && highGasLEL) {
+            oisdStatus = 'BREACH';
+            oisdAction = `
+                <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                    <span>Revoke permit PTW-8022 immediately</span>
+                    <button class="btn-action btn-mitigate btn-cancel-permit" data-permit-id="PTW-8022" style="margin-left: 8px;">Revoke Permit</button>
+                </div>
+            `;
+        } else if (this.cancelledPermits.has('PTW-8022') || this.mitigatedZones.has(2)) {
+            oisdStatus = 'COMPLIANT';
+            oisdAction = 'Permit PTW-8022 revoked; LEL safe';
+        }
+
+        // Render rows
+        const cleanClass = (str) => str.toLowerCase().replace(/[^a-z]/g, '');
+        tableBody.innerHTML = `
+            <tr>
+                <td><strong>OSHA 1910.119</strong></td>
+                <td>(f) Operating Procedures</td>
+                <td>Establish operating limits & emergency steps</td>
+                <td><span class="status-badge ${cleanClass(oshaFStatus)}">${oshaFStatus}</span></td>
+                <td>${oshaFAction}</td>
+            </tr>
+            <tr>
+                <td><strong>OSHA 1910.119</strong></td>
+                <td>(j) Mechanical Integrity</td>
+                <td>Test/inspect safety critical systems (deluge)</td>
+                <td><span class="status-badge ${cleanClass(oshaJStatus)}">${oshaJStatus}</span></td>
+                <td>${oshaJAction}</td>
+            </tr>
+            <tr>
+                <td><strong>OISD-STD-116</strong></td>
+                <td>Sec 5.3</td>
+                <td>Hot Work requires LEL &lt; 10%</td>
+                <td><span class="status-badge ${cleanClass(oisdStatus)}">${oisdStatus}</span></td>
+                <td>${oisdAction}</td>
+            </tr>
+        `;
+
+        // Update active count summary
+        let activeCounts = 3;
+        if (summaryCount) {
+            summaryCount.textContent = `${activeCounts} Clauses Active`;
         }
     }
 }

@@ -727,3 +727,104 @@
 .map-camera-icon.state-warning {
     filter: drop-shadow(0 0 5px rgba(220, 140, 40, 0.7));
 }
+
+/* ===========================================================
+   COMPLIANCE DASHBOARD
+   =========================================================== */
+.compliance-panel {
+    border-top: 1px solid var(--rule);
+    background: var(--surface);
+    height: 180px;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+}
+
+.compliance-table-container {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 12px;
+}
+
+.compliance-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-align: left;
+}
+
+.compliance-table th {
+    font-weight: 500;
+    text-transform: uppercase;
+    color: var(--text-3);
+    border-bottom: 1px solid var(--rule-strong);
+    padding: 6px 8px;
+    font-size: 10px;
+    letter-spacing: 0.05em;
+}
+
+.compliance-table td {
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--rule);
+    color: var(--text-2);
+    vertical-align: middle;
+}
+
+.compliance-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.compliance-table .status-badge {
+    display: inline-block;
+    padding: 2px 6px;
+    text-transform: uppercase;
+    font-weight: 600;
+    font-size: 9px;
+    letter-spacing: 0.04em;
+    border-radius: 0;
+    text-align: center;
+    width: 100%;
+}
+
+.compliance-table .status-badge.compliant {
+    color: var(--text-2);
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--rule-strong);
+}
+
+.compliance-table .status-badge.compliantesdactive {
+    color: var(--text-1);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--accent-data);
+}
+
+.compliance-table .status-badge.warning {
+    color: var(--state-warning);
+    background: rgba(176, 136, 48, 0.08);
+    border: 1px solid var(--state-warning);
+}
+
+.compliance-table .status-badge.breach {
+    color: var(--state-critical);
+    background: rgba(204, 51, 51, 0.08);
+    border: 1px solid var(--state-critical);
+}
+
+.compliance-table .btn-action {
+    background: transparent;
+    border: 1px solid var(--rule-strong);
+    color: var(--text-2);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 2px 8px;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: all 0.15s ease;
+}
+
+.compliance-table .btn-action:hover {
+    border-color: var(--text-1);
+    color: var(--text-1);
+}
+
