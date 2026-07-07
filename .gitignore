@@ -9,3 +9,4 @@ __pycache__/
 .pytest_cache/
 .chroma/
 suggestion_artifact.md
+*.dat
