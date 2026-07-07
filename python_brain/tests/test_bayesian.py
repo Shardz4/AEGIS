@@ -161,6 +161,7 @@ def test_batch_processor_loop():
     
     # 1. Process normal batch
     processor.process_events()
+    processor.evaluate_risk()
     assert 2 in processor.latest_signals
     assert processor.latest_signals[2]["Pressure"] == 1.5
     assert processor.latest_tti[2]["Pressure"][2] == "normal"
@@ -174,6 +175,7 @@ def test_batch_processor_loop():
 
     # 2. Process critical batch
     processor.process_events()
+    processor.evaluate_risk()
     assert processor.latest_signals[2]["Pressure"] == 9.5
     assert processor.latest_tti[2]["Pressure"][2] == "critical"
 
