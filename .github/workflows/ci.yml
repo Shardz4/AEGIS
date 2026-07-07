@@ -1,0 +1,61 @@
+name: AEGIS CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  rust-check:
+    name: Rust Core Verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: rust_core -> target
+
+      - name: Check Formatting
+        run: cargo fmt --manifest-path rust_core/Cargo.toml --all -- --check
+
+      - name: Compile check
+        run: cargo check --manifest-path rust_core/Cargo.toml --all-targets
+
+      - name: Run Tests
+        run: cargo test --manifest-path rust_core/Cargo.toml
+
+      - name: Run Clippy
+        run: cargo clippy --manifest-path rust_core/Cargo.toml --all-targets -- -D warnings
+
+  python-check:
+    name: Python Brain Verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: 'python_brain/pyproject.toml'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "python_brain[dev]"
+
+      - name: Run Pytest
+        run: |
+          cd python_brain
+          python -m pytest
