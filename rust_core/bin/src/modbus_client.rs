@@ -118,7 +118,7 @@ pub async fn run_modbus_ingest(
                         };
 
                         match result {
-                            Ok(vals) => {
+                            Ok(Ok(vals)) => {
                                 if let Some(&raw_val) = vals.first() {
                                     let scaled_val = raw_val as f64 * input.scale;
                                     let now_sec = SystemTime::now()
@@ -139,6 +139,12 @@ pub async fn run_modbus_ingest(
                                         eprintln!("[Modbus] RingBuffer push failed: {:?}", e);
                                     }
                                 }
+                            }
+                            Ok(Err(e)) => {
+                                eprintln!(
+                                    "[Modbus] Exception code received on address {}: {:?}",
+                                    input.register_address, e
+                                );
                             }
                             Err(e) => {
                                 eprintln!(
