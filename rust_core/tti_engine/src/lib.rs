@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -36,10 +36,10 @@ impl TtiEngine {
     /// Update the engine with a new reading. Returns the TtiResult.
     pub fn update(&mut self, signal_id: u16, ts_us: u64, value: f64, threshold: f64) -> TtiResult {
         let window = self.history.entry(signal_id).or_insert_with(VecDeque::new);
-        
+
         // Add new reading
         window.push_back((ts_us, value));
-        
+
         // Evict oldest if exceeding window size
         if window.len() > self.window_size {
             window.pop_front();
@@ -107,16 +107,20 @@ impl TtiEngine {
             let x = ((*ts - t0) as f64) / 1_000_000.0;
             let y = *val;
             let y_pred = slope * x + intercept;
-            
+
             let diff_tot = y - y_mean;
             let diff_res = y - y_pred;
-            
+
             ss_tot += diff_tot * diff_tot;
             ss_res += diff_res * diff_res;
         }
 
         let r_squared = if ss_tot < 1e-10 {
-            if ss_res < 1e-10 { 1.0 } else { 0.0 }
+            if ss_res < 1e-10 {
+                1.0
+            } else {
+                0.0
+            }
         } else {
             (1.0 - (ss_res / ss_tot)).clamp(0.0, 1.0)
         };
@@ -220,7 +224,7 @@ mod tests {
         // Linear trend y = 2.0 * t + 10.0
         // Plus some small noise (we will use fixed pattern to avoid rand dependency in unit tests)
         let noise = [0.1, -0.2, 0.15, -0.1, 0.05, -0.15, 0.2, -0.05, 0.0, 0.1];
-        
+
         for i in 0..30 {
             let t = (i * 100_000) as u64; // 100ms steps
             let t_sec = (i as f64) * 0.1;
@@ -241,7 +245,7 @@ mod tests {
     fn test_already_breached_tti() {
         let mut engine = TtiEngine::new(30);
         let threshold = 100.0;
-        
+
         // Push 3 normal values
         engine.update(1, 0, 80.0, threshold);
         engine.update(1, 100_000, 85.0, threshold);
@@ -253,4 +257,3 @@ mod tests {
         assert_eq!(res.urgency, Urgency::Critical);
     }
 }
-

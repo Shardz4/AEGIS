@@ -1,9 +1,9 @@
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::net::TcpStream;
-use tokio::io::{AsyncWriteExt, AsyncReadExt};
-use tokio::time::sleep;
-use serde::Deserialize;
 use ring_buffer::{RingBuffer, SensorEvent};
+use serde::Deserialize;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
+use tokio::time::sleep;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct OpcUaTag {
@@ -33,10 +33,12 @@ pub async fn run_opcua_ingest(
         }
     };
     // Parse address from endpoint URL (e.g. opc.tcp://127.0.0.1:4840)
-    let raw_addr = config.endpoint
-        .replace("opc.tcp://", "");
-    
-    println!("[OPC UA] Starting client worker connecting to: {}", raw_addr);
+    let raw_addr = config.endpoint.replace("opc.tcp://", "");
+
+    println!(
+        "[OPC UA] Starting client worker connecting to: {}",
+        raw_addr
+    );
 
     let poll_interval = Duration::from_millis(config.subscription_interval_ms);
     let mut mock_telemetry_val = 12.5; // Baseline mock value
@@ -44,8 +46,11 @@ pub async fn run_opcua_ingest(
     loop {
         match TcpStream::connect(&raw_addr).await {
             Ok(mut stream) => {
-                println!("[OPC UA] Connected to plant historian endpoint: {}. Performing handshake...", config.endpoint);
-                
+                println!(
+                    "[OPC UA] Connected to plant historian endpoint: {}. Performing handshake...",
+                    config.endpoint
+                );
+
                 // Formulate OPC UA HEL (Hello) message
                 // Message type: HEL (3 bytes) + Chunk type: F (1 byte) + Message size (4 bytes, Little-Endian)
                 // Payload: Protocol Version (u32), ReceiveBufferSize (u32), SendBufferSize (u32), MaxMessageSize (u32), MaxChunkCount (u32)
@@ -68,7 +73,10 @@ pub async fn run_opcua_ingest(
                 match stream.read_exact(&mut ack_header).await {
                     Ok(_) => {
                         if &ack_header[0..3] == b"ACK" {
-                            println!("[OPC UA] Handshake succeeded! Handshake response received: {:?}", ack_header);
+                            println!(
+                                "[OPC UA] Handshake succeeded! Handshake response received: {:?}",
+                                ack_header
+                            );
                         } else {
                             eprintln!("[OPC UA] Unexpected handshake response: {:?}", ack_header);
                         }
@@ -83,16 +91,16 @@ pub async fn run_opcua_ingest(
                 // OPC UA Session active & Tag polling loop
                 loop {
                     let start_tick = std::time::Instant::now();
-                    
+
                     // Periodically poll mapped tags and stream monitored values
                     mock_telemetry_val += (rand_value() - 0.5) * 0.4; // Simulate real-time data drift
-                    
+
                     for tag in &config.tags {
                         let now_sec = SystemTime::now()
                             .duration_since(UNIX_EPOCH)
                             .unwrap_or_default()
                             .as_secs();
-                        
+
                         let event = SensorEvent {
                             ts: now_sec,
                             src: 3, // Source 3 = OPC UA Ingest
@@ -115,7 +123,7 @@ pub async fn run_opcua_ingest(
             }
             Err(e) => {
                 eprintln!("[OPC UA] Connection failed to {}: {:?}. Staging telemetry in simulation mode...", config.endpoint, e);
-                
+
                 // Dev/Simulation mode fallback: keep streaming simulated historian tags to Ring Buffer
                 for _ in 0..5 {
                     mock_telemetry_val += (rand_value() - 0.5) * 0.4;
@@ -124,7 +132,7 @@ pub async fn run_opcua_ingest(
                             .duration_since(UNIX_EPOCH)
                             .unwrap_or_default()
                             .as_secs();
-                        
+
                         let event = SensorEvent {
                             ts: now_sec,
                             src: 3, // Source 3 = OPC UA Ingest
@@ -137,7 +145,7 @@ pub async fn run_opcua_ingest(
                     }
                     sleep(poll_interval).await;
                 }
-                
+
                 sleep(Duration::from_secs(2)).await;
             }
         }
@@ -146,6 +154,9 @@ pub async fn run_opcua_ingest(
 
 // Simple deterministic pseudo-random helper for mock historian drift
 fn rand_value() -> f64 {
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
     ((now % 100) as f64) / 100.0
 }

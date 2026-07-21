@@ -1,10 +1,10 @@
+use ring_buffer::{RingBuffer, SensorEvent};
+use serde::Deserialize;
 use std::net::SocketAddr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tokio::time::sleep;
 use tokio_modbus::prelude::*;
-use serde::Deserialize;
-use ring_buffer::{RingBuffer, SensorEvent};
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct RegisterInput {
@@ -53,12 +53,18 @@ pub async fn run_modbus_ingest(
     let socket_addr: SocketAddr = match plc_addr.parse() {
         Ok(addr) => addr,
         Err(e) => {
-            eprintln!("[Modbus] Invalid IP/port config: {}, error: {:?}", plc_addr, e);
+            eprintln!(
+                "[Modbus] Invalid IP/port config: {}, error: {:?}",
+                plc_addr, e
+            );
             return;
         }
     };
 
-    println!("[Modbus] Starting client worker connecting to: {}", socket_addr);
+    println!(
+        "[Modbus] Starting client worker connecting to: {}",
+        socket_addr
+    );
 
     // Actuation task that listens for incoming operator commands
     let outputs_cfg = config.outputs.clone();
@@ -72,11 +78,14 @@ pub async fn run_modbus_ingest(
                     "[Modbus] Actuating coil address {} for Zone {} mitigation command '{}'",
                     target_coil.coil_address, cmd.zone, cmd.action
                 );
-                
+
                 // Establish connection for command writing
                 match tcp::connect(socket_addr).await {
                     Ok(mut client) => {
-                        match client.write_single_coil(target_coil.coil_address, true).await {
+                        match client
+                            .write_single_coil(target_coil.coil_address, true)
+                            .await
+                        {
                             Ok(_) => println!("[Modbus] Coil actuation write succeeded!"),
                             Err(e) => eprintln!("[Modbus] Failed to write coil: {:?}", e),
                         }
@@ -97,10 +106,14 @@ pub async fn run_modbus_ingest(
                 println!("[Modbus] Connected to PLC. Starting register polling.");
                 loop {
                     let start_tick = std::time::Instant::now();
-                    
+
                     for input in &inputs {
                         let result = match input.register_type.as_str() {
-                            "holding" => client.read_holding_registers(input.register_address, 1).await,
+                            "holding" => {
+                                client
+                                    .read_holding_registers(input.register_address, 1)
+                                    .await
+                            }
                             _ => client.read_input_registers(input.register_address, 1).await,
                         };
 
@@ -112,7 +125,7 @@ pub async fn run_modbus_ingest(
                                         .duration_since(unch_epoch())
                                         .unwrap_or_default()
                                         .as_secs();
-                                    
+
                                     let event = SensorEvent {
                                         ts: now_sec,
                                         src: 2, // Source 2 = Modbus Ingest
@@ -128,7 +141,10 @@ pub async fn run_modbus_ingest(
                                 }
                             }
                             Err(e) => {
-                                eprintln!("[Modbus] Polling error on address {}: {:?}", input.register_address, e);
+                                eprintln!(
+                                    "[Modbus] Polling error on address {}: {:?}",
+                                    input.register_address, e
+                                );
                             }
                         }
                     }
@@ -140,7 +156,10 @@ pub async fn run_modbus_ingest(
                 }
             }
             Err(e) => {
-                eprintln!("[Modbus] Connection failed to {}: {:?}. Retrying in 5 seconds...", socket_addr, e);
+                eprintln!(
+                    "[Modbus] Connection failed to {}: {:?}. Retrying in 5 seconds...",
+                    socket_addr, e
+                );
                 sleep(Duration::from_secs(5)).await;
             }
         }

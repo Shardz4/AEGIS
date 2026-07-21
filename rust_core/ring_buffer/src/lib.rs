@@ -1,10 +1,10 @@
+use memmap2::MmapMut;
 use std::fs::OpenOptions;
-use std::io::{Result, Error, ErrorKind};
+use std::io::{Error, ErrorKind, Result};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::Duration;
-use memmap2::MmapMut;
 
 pub mod protocol;
 pub use protocol::SensorEvent;
@@ -275,10 +275,13 @@ mod tests {
     use super::*;
 
     fn temp_file_path() -> String {
-        format!("temp_ring_buffer_{}.bin", std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos())
+        format!(
+            "temp_ring_buffer_{}.bin",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        )
     }
 
     #[test]
@@ -366,4 +369,3 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 }
-

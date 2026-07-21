@@ -1,13 +1,13 @@
 mod modbus_client;
 mod opcua_client;
 
-use ring_buffer::RingBuffer;
-use scada_sim::{ScadaSimulator, SimConfig, SensorType, Scenario};
-use tti_engine::{TtiEngine, TtiResult, Urgency};
 use plume_sim::{PlumeEngine, PlumeParams, ZoneBoundary};
+use ring_buffer::RingBuffer;
 use ring_buffer::SensorEvent;
-use std::time::{Instant, Duration};
+use scada_sim::{ScadaSimulator, Scenario, SensorType, SimConfig};
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
+use tti_engine::{TtiEngine, TtiResult, Urgency};
 
 fn format_tti(tti: Option<f64>) -> String {
     match tti {
@@ -70,26 +70,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Ok(config_str) = std::fs::read_to_string("industrial_config.json") {
             if let Ok(config_json) = serde_json::from_str::<serde_json::Value>(&config_str) {
                 println!("[Pipeline] Industrial Ingestion mode active. Initializing Modbus TCP and OPC UA tasks.");
-                
+
                 // Parse Modbus config
                 if let Some(mb_val) = config_json.get("modbus_tcp") {
-                    if let Ok(mb_config) = serde_json::from_value::<modbus_client::ModbusConfig>(mb_val.clone()) {
+                    if let Ok(mb_config) =
+                        serde_json::from_value::<modbus_client::ModbusConfig>(mb_val.clone())
+                    {
                         let (tx, rx) = mpsc::channel(32);
                         modbus_tx = Some(tx);
-                        
+
                         let rb_path = path.clone();
                         tokio::spawn(async move {
-                            modbus_client::run_modbus_ingest(mb_config, rb_path, 64 * 1024 * 1024, rx).await;
+                            modbus_client::run_modbus_ingest(
+                                mb_config,
+                                rb_path,
+                                64 * 1024 * 1024,
+                                rx,
+                            )
+                            .await;
                         });
                     }
                 }
 
                 // Parse OPC UA config
                 if let Some(opc_val) = config_json.get("opc_ua") {
-                    if let Ok(opc_config) = serde_json::from_value::<opcua_client::OpcUaConfig>(opc_val.clone()) {
+                    if let Ok(opc_config) =
+                        serde_json::from_value::<opcua_client::OpcUaConfig>(opc_val.clone())
+                    {
                         let rb_path = path.clone();
                         tokio::spawn(async move {
-                            opcua_client::run_opcua_ingest(opc_config, rb_path, 64 * 1024 * 1024).await;
+                            opcua_client::run_opcua_ingest(opc_config, rb_path, 64 * 1024 * 1024)
+                                .await;
                         });
                     }
                 }
@@ -99,28 +110,72 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Define 8 plant zones (center_x, center_y, radius_m)
     let zone_boundaries = vec![
-        ZoneBoundary { zone_id: 0, center_x: 100.0, center_y: 100.0, radius_m: 50.0 },
-        ZoneBoundary { zone_id: 1, center_x: 250.0, center_y: 100.0, radius_m: 40.0 },
-        ZoneBoundary { zone_id: 2, center_x: 400.0, center_y: 100.0, radius_m: 60.0 },
-        ZoneBoundary { zone_id: 3, center_x: 100.0, center_y: 250.0, radius_m: 45.0 },
-        ZoneBoundary { zone_id: 4, center_x: 250.0, center_y: 250.0, radius_m: 50.0 },
-        ZoneBoundary { zone_id: 5, center_x: 400.0, center_y: 250.0, radius_m: 55.0 },
-        ZoneBoundary { zone_id: 6, center_x: 100.0, center_y: 400.0, radius_m: 60.0 },
-        ZoneBoundary { zone_id: 7, center_x: 400.0, center_y: 400.0, radius_m: 50.0 },
+        ZoneBoundary {
+            zone_id: 0,
+            center_x: 100.0,
+            center_y: 100.0,
+            radius_m: 50.0,
+        },
+        ZoneBoundary {
+            zone_id: 1,
+            center_x: 250.0,
+            center_y: 100.0,
+            radius_m: 40.0,
+        },
+        ZoneBoundary {
+            zone_id: 2,
+            center_x: 400.0,
+            center_y: 100.0,
+            radius_m: 60.0,
+        },
+        ZoneBoundary {
+            zone_id: 3,
+            center_x: 100.0,
+            center_y: 250.0,
+            radius_m: 45.0,
+        },
+        ZoneBoundary {
+            zone_id: 4,
+            center_x: 250.0,
+            center_y: 250.0,
+            radius_m: 50.0,
+        },
+        ZoneBoundary {
+            zone_id: 5,
+            center_x: 400.0,
+            center_y: 250.0,
+            radius_m: 55.0,
+        },
+        ZoneBoundary {
+            zone_id: 6,
+            center_x: 100.0,
+            center_y: 400.0,
+            radius_m: 60.0,
+        },
+        ZoneBoundary {
+            zone_id: 7,
+            center_x: 400.0,
+            center_y: 400.0,
+            radius_m: 50.0,
+        },
     ];
 
     // Initialize SCADA simulator (200 sensors, 8 zones, 10Hz tick rate)
     let sim_config = SimConfig::default();
     let mut sim = ScadaSimulator::new(sim_config);
-    println!("Initialized ScadaSimulator with {} sensors across {} zones", 
-             sim.sensors.len(), sim.config.num_zones);
+    println!(
+        "Initialized ScadaSimulator with {} sensors across {} zones",
+        sim.sensors.len(),
+        sim.config.num_zones
+    );
 
     // Initialize TTI Engine with window size of 30 ticks (~3 seconds)
     let mut tti_engine = TtiEngine::new(30);
 
     // Initialize Plume Engine
     let plume_engine = PlumeEngine::new();
-    let mut last_plume_calc: std::collections::HashMap<u16, Instant> = std::collections::HashMap::new();
+    let mut last_plume_calc: std::collections::HashMap<u16, Instant> =
+        std::collections::HashMap::new();
 
     // Keep track of latest results for the console dashboard
     let mut latest_results: Vec<(String, String, TtiResult)> = Vec::new();
@@ -148,12 +203,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Ok(content) = std::fs::read_to_string("control_override.json") {
                 if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
                     // 1. Process isolation command
-                    if let Some(isolated_zones) = val.get("isolated_zones").and_then(|z| z.as_array()) {
+                    if let Some(isolated_zones) =
+                        val.get("isolated_zones").and_then(|z| z.as_array())
+                    {
                         for zone_val in isolated_zones {
                             if let Some(zone_id) = zone_val.as_u64() {
                                 let zone_id = zone_id as u8;
                                 for sensor in &mut sim.sensors {
-                                    if sensor.zone == zone_id && sensor.scenario != Scenario::Normal {
+                                    if sensor.zone == zone_id && sensor.scenario != Scenario::Normal
+                                    {
                                         println!("Closed-loop: Process isolation command received. Resetting Zone {} sensor #{} to Normal.", zone_id, sensor.id);
                                         sensor.scenario = Scenario::Normal;
                                         sensor.ticks_in_scenario = 0;
@@ -162,21 +220,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                                 // Also trigger Modbus coil write if active
                                 if let Some(ref tx) = modbus_tx {
-                                    let _ = tx.send(modbus_client::ModbusActuationCommand {
-                                        zone: zone_id,
-                                        action: "isolate_feed".to_string(),
-                                    }).await;
+                                    let _ = tx
+                                        .send(modbus_client::ModbusActuationCommand {
+                                            zone: zone_id,
+                                            action: "isolate_feed".to_string(),
+                                        })
+                                        .await;
                                 }
                             }
                         }
                     }
 
                     // 2. Sensor recalibration command
-                    if let Some(recalibrated) = val.get("recalibrated_sensors").and_then(|r| r.as_array()) {
+                    if let Some(recalibrated) =
+                        val.get("recalibrated_sensors").and_then(|r| r.as_array())
+                    {
                         for sensor_val in recalibrated {
                             if let Some(sensor_id) = sensor_val.as_u64() {
                                 let sensor_id = sensor_id as u16;
-                                if let Some(sensor) = sim.sensors.iter_mut().find(|s| s.id == sensor_id) {
+                                if let Some(sensor) =
+                                    sim.sensors.iter_mut().find(|s| s.id == sensor_id)
+                                {
                                     println!("Closed-loop: Recalibration command received. Resetting sensor #{} drift.", sensor_id);
                                     sensor.drift = 0.0;
                                     sensor.scenario = Scenario::Normal;
@@ -214,14 +278,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Find corresponding sensor to get threshold and type
             let sensor = &sim.sensors[event.signal_id as usize];
             let threshold = sensor.threshold_critical;
-            
+
             // Update TTI Engine
-            let tti_result = tti_engine.update(
-                event.signal_id,
-                event.ts,
-                event.value,
-                threshold,
-            );
+            let tti_result = tti_engine.update(event.signal_id, event.ts, event.value, threshold);
 
             // Serialize TtiResult into MsgPack bytes for the meta field
             let meta_bytes = rmp_serde::to_vec_named(&tti_result)?;
@@ -238,8 +297,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             // 3. If Gas Concentration sensor enters Warning/Critical, trigger Plume Dispersion model
-            if sensor.sensor_type == SensorType::GasConcentration 
-                && (tti_result.urgency == Urgency::Warning || tti_result.urgency == Urgency::Critical)
+            if sensor.sensor_type == SensorType::GasConcentration
+                && (tti_result.urgency == Urgency::Warning
+                    || tti_result.urgency == Urgency::Critical)
             {
                 let now_inst = Instant::now();
                 let should_compute = match last_plume_calc.get(&event.signal_id) {
@@ -266,10 +326,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         emission_rate_kg_s: emission_rate,
                         wind_speed_m_s: active_wind_speed,
                         wind_direction_deg: active_wind_direction,
-                        stability_class: 'D',      // stability D (neutral)
+                        stability_class: 'D', // stability D (neutral)
                         gas_name: "H2S".to_string(),
-                        threshold_ppm: 50.0,       // IDLH for H2S
-                        molecular_weight: 34.08,   // MW
+                        threshold_ppm: 50.0,     // IDLH for H2S
+                        molecular_weight: 34.08, // MW
                     };
 
                     let plume_res = plume_engine.compute(&plume_params, &zone_boundaries);
@@ -307,7 +367,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // 4. Print Console Dashboard every 1 second
-        if !std::env::var("AEGIS_UNTHROTTLED").is_ok() && last_dashboard_print.elapsed() >= Duration::from_secs(1) {
+        if !std::env::var("AEGIS_UNTHROTTLED").is_ok()
+            && last_dashboard_print.elapsed() >= Duration::from_secs(1)
+        {
             last_dashboard_print = Instant::now();
 
             // Sort results: Critical first, then Warning, then Watch, then Normal
@@ -316,7 +378,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let urgency_ord = b.2.urgency.cmp(&a.2.urgency);
                 if urgency_ord == std::cmp::Ordering::Equal {
                     match (a.2.tti_seconds, b.2.tti_seconds) {
-                        (Some(t1), Some(t2)) => t1.partial_cmp(&t2).unwrap_or(std::cmp::Ordering::Equal),
+                        (Some(t1), Some(t2)) => {
+                            t1.partial_cmp(&t2).unwrap_or(std::cmp::Ordering::Equal)
+                        }
                         (Some(_), None) => std::cmp::Ordering::Less,
                         (None, Some(_)) => std::cmp::Ordering::Greater,
                         (None, None) => std::cmp::Ordering::Equal,
@@ -328,26 +392,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             print!("\x1B[2J\x1B[1H"); // Clear screen and move cursor to top
             println!("================== AEGIS LIVE SCADA & TTI PIPELINE ==================");
-            println!("Elapsed: {:.1}s | Ticks: {} | Buffer: {}", 
-                     start_time.elapsed().as_secs_f64(), ticks, path);
+            println!(
+                "Elapsed: {:.1}s | Ticks: {} | Buffer: {}",
+                start_time.elapsed().as_secs_f64(),
+                ticks,
+                path
+            );
             println!("---------------------------------------------------------------------");
-            println!("{:<8} | {:<18} | {:<12} | {:<12} | {:<10} | {}", 
-                     "ZONE", "SENSOR", "VALUE", "TTI", "CONFIDENCE", "URGENCY");
+            println!(
+                "{:<8} | {:<18} | {:<12} | {:<12} | {:<10} | {}",
+                "ZONE", "SENSOR", "VALUE", "TTI", "CONFIDENCE", "URGENCY"
+            );
             println!("---------------------------------------------------------------------");
 
             for (zone, name, res) in latest_results.iter().take(5) {
                 let val_str = format!("{:.2}", res.current_value);
                 let tti_str = format_tti(res.tti_seconds);
                 let conf_str = format!("{:.2}", res.r_squared);
-                println!("{:<8} | {:<18} | {:<12} | {:<12} | {:<10} | {}",
-                         zone, name, val_str, tti_str, conf_str, urgency_label(res.urgency));
+                println!(
+                    "{:<8} | {:<18} | {:<12} | {:<12} | {:<10} | {}",
+                    zone,
+                    name,
+                    val_str,
+                    tti_str,
+                    conf_str,
+                    urgency_label(res.urgency)
+                );
             }
 
             if !active_plumes.is_empty() {
                 println!("---------------------------------------------------------------------");
                 println!("ACTIVE PLUME DISPERSION MODELS:");
                 for (zone_id, radius) in &active_plumes {
-                    println!("ZONE {} | Consequence Hazard Radius: {:.1}m (IDLH threshold 50ppm)", zone_id, radius);
+                    println!(
+                        "ZONE {} | Consequence Hazard Radius: {:.1}m (IDLH threshold 50ppm)",
+                        zone_id, radius
+                    );
                 }
             }
             println!("=====================================================================");

@@ -1,5 +1,5 @@
-use serde::{Serialize, Deserialize};
 use ring_buffer::SensorEvent;
+use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
@@ -79,7 +79,10 @@ impl Lcg {
     }
 
     fn next_u64(&mut self) -> u64 {
-        self.state = self.state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        self.state = self
+            .state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         self.state
     }
 
@@ -101,7 +104,7 @@ impl ScadaSimulator {
 
         for id in 0..config.num_sensors {
             let zone = (id % config.num_zones as u16) as u8;
-            
+
             // Cycle through sensor types
             let sensor_type = match id % 8 {
                 0 => SensorType::GasConcentration,
@@ -190,7 +193,11 @@ impl ScadaSimulator {
     }
 
     pub fn inject_scenario(&mut self, zone: u8, sensor_id: u16, scenario: Scenario) {
-        if let Some(sensor) = self.sensors.iter_mut().find(|s| s.id == sensor_id && s.zone == zone) {
+        if let Some(sensor) = self
+            .sensors
+            .iter_mut()
+            .find(|s| s.id == sensor_id && s.zone == zone)
+        {
             sensor.scenario = scenario;
             sensor.ticks_in_scenario = 0;
             sensor.drift = 0.0;
@@ -213,7 +220,7 @@ impl ScadaSimulator {
 
         for sensor in self.sensors.iter_mut() {
             sensor.ticks_in_scenario += 1;
-            
+
             // Create a local noise generator using the sensor's own seed state
             let mut sensor_lcg = Lcg::new(sensor.seed_state);
             let noise = sensor_lcg.next_gaussian() * sensor.noise_amplitude;
@@ -225,7 +232,9 @@ impl ScadaSimulator {
                     let drift = (sensor.ticks_in_scenario as f64 * 0.01).sin() * 0.1;
                     sensor.current_value = sensor.baseline + drift + sensor.drift + noise;
                     // Clamp to make sure we don't naturally breach
-                    sensor.current_value = sensor.current_value.clamp(0.0, sensor.threshold_warning - 5.0);
+                    sensor.current_value = sensor
+                        .current_value
+                        .clamp(0.0, sensor.threshold_warning - 5.0);
                 }
                 Scenario::SlowRamp => {
                     // Linear ramp: increase 0.5% - 1.5% of critical threshold per tick
@@ -244,7 +253,8 @@ impl ScadaSimulator {
                     // Sine wave that occasionally crosses warning
                     let amplitude = (sensor.threshold_warning - sensor.baseline) * 1.1;
                     let period = 100.0; // ticks
-                    let angle = (sensor.ticks_in_scenario as f64 / period) * 2.0 * std::f64::consts::PI;
+                    let angle =
+                        (sensor.ticks_in_scenario as f64 / period) * 2.0 * std::f64::consts::PI;
                     sensor.current_value = sensor.baseline + amplitude * angle.sin() + noise;
                 }
                 Scenario::FlatHigh => {
@@ -259,7 +269,9 @@ impl ScadaSimulator {
                     sensor.drift += drift_rate;
                     sensor.current_value = sensor.baseline + sensor.drift + noise;
                     // Allow it to drift past warning and critical
-                    sensor.current_value = sensor.current_value.clamp(0.0, sensor.threshold_critical + 10.0);
+                    sensor.current_value = sensor
+                        .current_value
+                        .clamp(0.0, sensor.threshold_critical + 10.0);
                 }
             }
 
@@ -379,7 +391,11 @@ mod tests {
             }
         }
 
-        assert!(reached, "SLOW_RAMP did not reach threshold (initial: {}, critical: {})", initial_val, crit_threshold);
+        assert!(
+            reached,
+            "SLOW_RAMP did not reach threshold (initial: {}, critical: {})",
+            initial_val, crit_threshold
+        );
     }
 
     #[test]
@@ -393,24 +409,42 @@ mod tests {
             for sensor in &sim.sensors {
                 match sensor.sensor_type {
                     SensorType::GasConcentration => {
-                        assert!(sensor.current_value >= 0.0, "Gas concentration negative: {}", sensor.current_value);
+                        assert!(
+                            sensor.current_value >= 0.0,
+                            "Gas concentration negative: {}",
+                            sensor.current_value
+                        );
                     }
                     SensorType::PH => {
-                        assert!(sensor.current_value >= 0.0 && sensor.current_value <= 14.0, "pH out of range: {}", sensor.current_value);
+                        assert!(
+                            sensor.current_value >= 0.0 && sensor.current_value <= 14.0,
+                            "pH out of range: {}",
+                            sensor.current_value
+                        );
                     }
                     SensorType::Level => {
-                        assert!(sensor.current_value >= 0.0 && sensor.current_value <= 150.0, "Level out of bounds: {}", sensor.current_value);
+                        assert!(
+                            sensor.current_value >= 0.0 && sensor.current_value <= 150.0,
+                            "Level out of bounds: {}",
+                            sensor.current_value
+                        );
                     }
                     SensorType::Humidity => {
-                        assert!(sensor.current_value >= 0.0 && sensor.current_value <= 100.0, "Humidity out of bounds: {}", sensor.current_value);
+                        assert!(
+                            sensor.current_value >= 0.0 && sensor.current_value <= 100.0,
+                            "Humidity out of bounds: {}",
+                            sensor.current_value
+                        );
                     }
                     _ => {
                         // General check that values aren't NaN or infinite
-                        assert!(sensor.current_value.is_finite(), "Sensor value is NaN/infinite");
+                        assert!(
+                            sensor.current_value.is_finite(),
+                            "Sensor value is NaN/infinite"
+                        );
                     }
                 }
             }
         }
     }
 }
-
