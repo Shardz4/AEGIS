@@ -35,7 +35,7 @@ impl TtiEngine {
 
     /// Update the engine with a new reading. Returns the TtiResult.
     pub fn update(&mut self, signal_id: u16, ts_us: u64, value: f64, threshold: f64) -> TtiResult {
-        let window = self.history.entry(signal_id).or_insert_with(VecDeque::new);
+        let window = self.history.entry(signal_id).or_default();
 
         // Add new reading
         window.push_back((ts_us, value));

@@ -50,6 +50,12 @@ struct PGCoefficients {
     bz: f64,
 }
 
+impl Default for PlumeEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PlumeEngine {
     pub fn new() -> Self {
         Self

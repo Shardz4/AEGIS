@@ -12,7 +12,7 @@ use tti_engine::{TtiEngine, TtiResult, Urgency};
 fn format_tti(tti: Option<f64>) -> String {
     match tti {
         None => "Flat/Drifting".to_string(),
-        Some(t) if t == 0.0 => "BREACHED".to_string(),
+        Some(0.0) => "BREACHED".to_string(),
         Some(t) => {
             if t < 60.0 {
                 format!("{:.1}s", t)
@@ -367,7 +367,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // 4. Print Console Dashboard every 1 second
-        if !std::env::var("AEGIS_UNTHROTTLED").is_ok()
+        if std::env::var("AEGIS_UNTHROTTLED").is_err()
             && last_dashboard_print.elapsed() >= Duration::from_secs(1)
         {
             last_dashboard_print = Instant::now();
@@ -400,8 +400,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             println!("---------------------------------------------------------------------");
             println!(
-                "{:<8} | {:<18} | {:<12} | {:<12} | {:<10} | {}",
-                "ZONE", "SENSOR", "VALUE", "TTI", "CONFIDENCE", "URGENCY"
+                "{:<8} | {:<18} | {:<12} | {:<12} | {:<10} | URGENCY",
+                "ZONE", "SENSOR", "VALUE", "TTI", "CONFIDENCE"
             );
             println!("---------------------------------------------------------------------");
 
@@ -434,7 +434,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // Sleep to throttle tick rate to 10Hz
-        if !std::env::var("AEGIS_UNTHROTTLED").is_ok() {
+        if std::env::var("AEGIS_UNTHROTTLED").is_err() {
             let elapsed = tick_start.elapsed();
             if elapsed < tick_duration {
                 tokio::time::sleep(tick_duration - elapsed).await;

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use ring_buffer::{RingBuffer, SensorEvent};
 use serde::Deserialize;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
