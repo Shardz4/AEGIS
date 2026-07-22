@@ -13,6 +13,10 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "scipy"
+        versions: [">= 1.18.0"]
+
 
   # Enable version updates for GitHub Actions
   - package-ecosystem: "github-actions"

@@ -12,4 +12,7 @@ suggestion_artifact.md
 *.dat
 run_automated_demo.py
 control_override.json
+generate_pitch_deck.py
+*.pptx
+
 
