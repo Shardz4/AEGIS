@@ -10,3 +10,6 @@ __pycache__/
 .chroma/
 suggestion_artifact.md
 *.dat
+run_automated_demo.py
+control_override.json
+
