@@ -16,7 +16,7 @@ dependencies = [
     "sentence-transformers",
     "openai",
     "jinja2",
-    "aiohttp>=3.8.0",
+    "aiohttp>=3.14.2",
 ]
 
 [project.optional-dependencies]
