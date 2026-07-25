@@ -12,7 +12,7 @@ dependencies = [
     "networkx>=3.6.1",
     "pgmpy>=1.1.2",
     "scipy>=1.17.1,<1.18.0",
-    "pandas>=3.0.3",
+    "pandas>=3.0.5",
     "sentence-transformers",
     "openai",
     "jinja2",
