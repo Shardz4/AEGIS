@@ -1,10 +1,10 @@
-# 🛡️ AEGIS — Adaptive Engine for Graded Industrial Safety
+#  AEGIS — Adaptive Engine for Graded Industrial Safety
 
 **AEGIS** is a high-performance, predictive process-safety intelligence platform designed for high-consequence industrial facilities (petroleum refineries, chemical processing plants, and nuclear installations). By fusing real-time SCADA telemetry, CCTV computer vision analytics, active permit-to-work data, operator fatigue metrics, and regulatory standards, AEGIS provides plant operators with actionable, citation-backed safety warnings and automated risk mitigation **well before** traditional static threshold alarms fire.
 
 ---
 
-## 🏗️ System Architecture & Multi-Engine Topology
+##  System Architecture & Multi-Engine Topology
 
 AEGIS utilizes a high-throughput, dual-engine hybrid architecture joined by zero-copy inter-process communication:
 
@@ -48,7 +48,7 @@ AEGIS utilizes a high-throughput, dual-engine hybrid architecture joined by zero
 
 ---
 
-## 🚀 Complete Feature Breakdown
+##  Complete Feature Breakdown
 
 ### 1. SCADA Telemetry Ingestion & Time-To-Incident (TTI) Forecasting
 * **Continuous Trend Analysis**: Evaluates high-frequency signal streams across all 8 plant zones.
@@ -105,7 +105,7 @@ AEGIS utilizes a high-throughput, dual-engine hybrid architecture joined by zero
 
 ---
 
-## 📂 Repository Layout
+##  Repository Layout
 
 ```
 et_hack/
@@ -164,7 +164,7 @@ et_hack/
 
 ---
 
-## 🛠️ Prerequisites & Installation
+##  Prerequisites & Installation
 
 ### Prerequisites
 * **Rust**: `1.70+` (Cargo)
@@ -206,7 +206,7 @@ python -m pytest python_brain/tests/test_narrator.py    # RAG Citation Engine
 
 ---
 
-## 💻 Operating the System & Running Demos
+##  Operating the System & Running Demos
 
 ### Option A: Launch Interactive Pitch & Feature Demo
 To run the automated 10-slide feature showcase:
