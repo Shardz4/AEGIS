@@ -126,6 +126,7 @@ class BatchProcessor:
                     if zone_id not in self.zone_sensor_values:
                         self.zone_sensor_values[zone_id] = {}
                     self.zone_sensor_values[zone_id][signal_id] = val
+                    self.latest_signals[zone_id][s_type] = val
 
                     # Unpack TTI metadata
                     tti_secs = None
